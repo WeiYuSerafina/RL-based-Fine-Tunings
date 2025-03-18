@@ -11,7 +11,7 @@ model = AutoModelForCausalLM.pretrained(model_name)
 buffer = TrajectoryBuffer()
 trainer = PPOTrainer(model, tokenizer, buffer)
 
-# Train loops
+# Train loop
 for epoch in range(10):
     loss = trainer.train_step(batch_size = 32)
     print(f"Epoch {epoch + 1}, Loss: {loss}")

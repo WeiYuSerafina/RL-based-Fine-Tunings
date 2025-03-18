@@ -3,7 +3,7 @@ import torch.nn.functional as F
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 class PPOTrainer:
-    # Initialize
+    # Initialization
     def __init__(self, model, tokenizer, buffer, lr = 1e-5):
         self.model = model
         self.tokenizer = tokenizer

@@ -8,7 +8,7 @@ Rewards for calculating code:
 """
 
 def reward_function(generated_code, reference_code):
-    # Correctness checking
+    # Correctness check
     correctness = 1.0 if generated_code.strip() == reference_code.strip() else 0.0
 
     # Calculus execution time

@@ -20,7 +20,7 @@ class TrajectoryBuffer:
             self.rewards.append(reward)
             self.next_states.append(next_state)
 
-# Randomly sampled trajectory
+# Randomly sampled trajectories
     def sample(self, batch_size = 32):
         indices = torch.randint(0, len(self.states), (batch_size,))
         return (
