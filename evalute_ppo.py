@@ -1,6 +1,4 @@
-# evaluate_ppo.py replies train_ppo.py
 from train_ppo import model, tokenizer
-
 
 def evaluate_model(model, tokenizer, prompt):
     input_ids = tokenizer.encode(prompt, return_tensors = "pt")
