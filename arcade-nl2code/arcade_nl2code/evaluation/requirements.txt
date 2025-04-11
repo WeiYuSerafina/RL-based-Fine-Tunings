@@ -1,4 +1,4 @@
-tensorflow-cpu
+tensorflow
 absl-py
 pandas
 dacite
