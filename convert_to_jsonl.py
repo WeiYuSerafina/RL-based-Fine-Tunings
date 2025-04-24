@@ -1,26 +1,33 @@
 import json
 import argparse
 
+# based on annotated_dataset/dataset/new_tasks/dataset.json to modify
 def convert_dataset(input_path, output_path):
     with open(input_path, "r", encoding="utf-8") as f:
         dataset = json.load(f)
 
+    count = 0
     with open(output_path, "w", encoding="utf-8") as f_out:
-        for item in dataset:
-            instruction = item.get("instruction", "").strip()
-            context = item.get("context", "").strip()
-            target_code = item.get("target_code", "").strip()
+        for entry in dataset:
+            for turn in entry.get("turns", []):
+                turn_data = turn.get("turn", {})
+                instruction = turn_data.get("intent", {}).get("value", "").strip()
+                code = turn_data.get("code", {}).get("value", "").strip()
 
-            prompt = f"Instruction: {instruction}\nContext:\n{context}"
-            completion = target_code
+                if not instruction or not code:
+                    continue  # skip empty entries
 
-            record = {
-                "prompt": prompt,
-                "completion": completion
-            }
-            f_out.write(json.dumps(record) + "\n")
+                prompt = f"Instruction: {instruction}\nContext:"
+                completion = code
 
-    print(f"Converted {len(dataset)} samples to {output_path}")
+                record = {
+                    "prompt": prompt,
+                    "completion": completion
+                }
+                f_out.write(json.dumps(record) + "\n")
+                count += 1
+
+    print(f"✅ Converted {count} samples to {output_path}")
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()

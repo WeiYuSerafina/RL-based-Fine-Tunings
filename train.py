@@ -29,6 +29,11 @@ from torch.distributed import init_process_group, destroy_process_group
 
 from model import GPTConfig, GPT
 
+import torch._dynamo
+torch._dynamo.config.suppress_errors = True
+
+import json
+
 # -----------------------------------------------------------------------------
 # default config values designed to train a gpt2 (124M) on OpenWebText
 # I/O
@@ -46,18 +51,18 @@ wandb_run_name = 'gpt2' # 'run' + str(time.time())
 # data
 dataset = 'arcade_new'
 gradient_accumulation_steps = 5 * 8 # used to simulate larger batch sizes
-batch_size = 4 # if gradient_accumulation_steps > 1, this is the micro-batch size
-block_size = 32  #128、256, according to your actaul data size
+batch_size = 8 # if gradient_accumulation_steps > 1, this is the micro-batch size
+block_size = 128  #128、256, according to your actaul data size
 
 # model
-n_layer = 12
-n_head = 12
-n_embd = 768
+n_layer = 4
+n_head = 4
+n_embd = 256
 dropout = 0.0 # for pretraining 0 is good, for finetuning try 0.1+
 bias = False # do we use bias inside LayerNorm and Linear layers?
 # adamw optimizer
 learning_rate = 2e-5 # learning rate
-max_iters = 300 # total number of training iterations
+max_iters = 1000 # total number of training iterations
 weight_decay = 1e-1
 beta1 = 0.9
 beta2 = 0.95
@@ -119,8 +124,9 @@ val_data = np.array(np.memmap(os.path.join(data_dir, 'val.bin'), dtype=np.uint16
 def get_batch(split):
     data = train_data if split == 'train' else val_data
     ix = torch.randint(len(data) - block_size, (batch_size,))
-    x = torch.stack([torch.tensor(data[i:i + block_size], dtype=torch.long) for i in ix])
-    y = torch.stack([torch.tensor(data[i + 1:i + 1 + block_size], dtype=torch.long) for i in ix])
+    x = torch.stack([torch.from_numpy((data[i:i + block_size]).astype(np.int64)) for i in ix])
+    y = torch.stack([torch.from_numpy((data[i + 1:i + 1 + block_size]).astype(np.int64)) for i in ix])
+
     if device_type == 'cuda':
         # pin arrays x,y, which allows us to move them to GPU asynchronously (non_blocking=True)
         x, y = x.pin_memory().to(device, non_blocking=True), y.pin_memory().to(device, non_blocking=True)
@@ -332,3 +338,15 @@ while True:
 
 if ddp:
     destroy_process_group()
+
+save_path = "./saved_nanoGPT"
+os.makedirs(save_path, exist_ok=True)
+
+# 保存权重/pytorch_model.bin
+torch.save(model.state_dict(), os.path.join(save_path, "pytorch_model.bin"))
+
+# 保存配置/config.json
+with open(os.path.join(save_path, "config.json"), "w") as f:
+    json.dump(model.config.__dict__, f, indent=4)
+
+print(f"pytorch_model.bin and config.json of nanoGPT-RL have been saved to: {save_path}")
