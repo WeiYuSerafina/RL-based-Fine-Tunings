@@ -2,6 +2,8 @@ import torch
 import os
 import json
 import time
+import sys
+from datetime import datetime
 from nano_gpt_policy import NanoGPTPolicy
 from ppo_trainer import PPOTrainer
 from trajectory_buffer import TrajectoryBuffer
@@ -86,3 +88,27 @@ if model.tokenizer:
     model.tokenizer.save_pretrained(save_path)
 
 print(f"Fine-tuned model, config, and tokenizer saved to: {save_path}")
+
+# 6.create logs file
+log_dir = "logs/logs PPO"
+os.makedirs(log_dir, exist_ok=True)
+
+# Set the log file name
+timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+log_file_path = os.path.join(log_dir, f"ppo_run_{timestamp}.log")
+
+# Redirect stdout to file + console
+class TeeLogger:
+    def __init__(self, filepath):
+        self.terminal = sys.stdout
+        self.logfile = open(filepath, "w", encoding="utf-8")
+
+    def write(self, message):
+        self.terminal.write(message)
+        self.logfile.write(message)
+
+    def flush(self):
+        self.terminal.flush()
+        self.logfile.flush()
+
+sys.stdout = TeeLogger(log_file_path)
