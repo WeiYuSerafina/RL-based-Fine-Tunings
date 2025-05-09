@@ -342,11 +342,14 @@ if ddp:
 save_path = "./saved_nanoGPT"
 os.makedirs(save_path, exist_ok=True)
 
-# 保存权重/pytorch_model.bin
+# save pytorch_model.bin
 torch.save(model.state_dict(), os.path.join(save_path, "pytorch_model.bin"))
 
-# 保存配置/config.json
+# save config.json
 with open(os.path.join(save_path, "config.json"), "w") as f:
     json.dump(model.config.__dict__, f, indent=4)
 
-print(f"pytorch_model.bin and config.json of nanoGPT-RL have been saved to: {save_path}")
+# save baseline_model.pt
+torch.save(model.state_dict(), os.path.join(save_path, "baseline_model.pt"))
+
+print(f"pytorch_model.bin, config.json and baseline_model.pt of nanoGPT-RL have been saved to: {save_path}")
