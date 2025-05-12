@@ -87,7 +87,10 @@ with open(f"{save_path}/config.json", "w") as f:
 if model.tokenizer:
     model.tokenizer.save_pretrained(save_path)
 
-print(f"Fine-tuned model, config, and tokenizer saved to: {save_path}")
+# Save the standard ppo_model.pt file for use in evaluate_perplexity.py
+torch.save(model.model.state_dict(), f"{save_path}/ppo_model.pt")
+
+print(f"Fine-tuned PPO model and related files saved to: {save_path} (includes pytorch_model.bin, config.json,tokenizer, ppo_model.pt)")
 
 # 6.create logs file
 log_dir = "logs/logs PPO"

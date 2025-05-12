@@ -73,7 +73,11 @@ def main():
     if model.tokenizer:
         model.tokenizer.save_pretrained(save_path)
 
-    print(f"✅ Fine-tuned model, config, and tokenizer saved to: {save_path}")
+    # Save the standard a2c_model.pt file for use in evaluate_perplexity.py
+    torch.save(model.model.state_dict(), f"{save_path}/a2c_model.pt")
+
+    print(
+        f"Fine-tuned A2C model and related files saved to: {save_path} (includes pytorch_model.bin, config.json,tokenizer, a2c_model.pt)")
 
 if __name__ == "__main__":
     main()
