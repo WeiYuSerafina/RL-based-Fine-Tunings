@@ -27,7 +27,7 @@ def convert_dataset(input_path, output_path):
                 f_out.write(json.dumps(record) + "\n")
                 count += 1
 
-    print(f"✅ Converted {count} samples to {output_path}")
+    print(f"Converted {count} samples to {output_path}")
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()

@@ -52,7 +52,7 @@ def main():
         tokenizer.pad_token = tokenizer.eos_token
 
     # 4. Dataset
-    dataset = load_dataset("json", data_files="arcade-nl2code/arcade_nl2code/annotated_dataset/new_tasks_for_nanoGPT.jsonl")["train"]
+    dataset = load_dataset("json", data_files="arcade-nl2code/arcade_nl2code/annotated_dataset/converted_new_tasks.jsonl")["train"]
 
     # 5. Buffer and trainer
     buffer = TrajectoryBuffer()

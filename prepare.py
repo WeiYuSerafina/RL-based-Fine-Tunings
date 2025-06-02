@@ -7,7 +7,7 @@ from tqdm import tqdm
 from transformers import GPT2Tokenizer
 
 # === CONFIGURATION ===
-dataset_path = 'arcade-nl2code/arcade_nl2code/annotated_dataset/new_tasks_for_nanoGPT.jsonl'  # your input .jsonl file
+dataset_path = 'arcade-nl2code/arcade_nl2code/annotated_dataset/converted_new_tasks.jsonl'  # your input .jsonl file
 output_dir = 'data/arcade_new'                      # output folder
 val_ratio = 0.1                                 # 10% validation split
 model_name = 'gpt2'                             # tokenizer type
@@ -29,13 +29,29 @@ val_lines = lines[-n_val:]
 
 def encode(lines, split):
     ids = []
+    skipped = 0  # 记录跳过样本数
+
     for line in tqdm(lines, desc=f"Encoding {split} set"):
         item = json.loads(line)
-        prompt = item["prompt"]
-        completion = item["completion"]
-        full_text = prompt + "\n" + completion + tokenizer.eos_token
+        instruction = item.get("instruction", "").strip()
+        context = item.get("context", "").strip()
+        solution = item.get("solution", "").strip()
+
+        if not instruction or not solution:
+            skipped += 1
+            continue
+
+        full_text = f"Instruction: {instruction}\nContext: {context}\n{solution}"
+
+        # ✅ 跳过只包含 <|endoftext|> 或太短的样本
+        if full_text.strip() == tokenizer.eos_token or len(full_text.strip()) <= 20:
+            skipped += 1
+            continue
+
         token_ids = tokenizer.encode(full_text)
         ids.extend(token_ids)
+
+    print(f"⚠️ Skipped {skipped} invalid or short samples in {split} set.")
     return ids
 
 # === ENCODE ===
@@ -67,3 +83,33 @@ print(f"Done! Saved train/val bin files and meta info to: {output_dir}/")
 print("Train token count:", len(train_ids))
 print("Val token count:", len(val_ids))
 
+# === SAVE tokenizer ===
+tokenizer.save_pretrained(output_dir)
+print("Tokenizer saved to:", output_dir)
+
+# === preview_training_samples.py ===
+import numpy as np
+from transformers import GPT2Tokenizer
+
+def preview_training_samples(bin_path, tokenizer_path, n=5, token_limit=20000):
+    # 加载 tokenizer
+    tokenizer = GPT2Tokenizer.from_pretrained(tokenizer_path) # ("data/arcade_new")
+    tokenizer.pad_token = tokenizer.eos_token
+
+    # 加载 token 二进制文件
+    train_data = np.memmap(bin_path, dtype=np.uint16, mode='r')
+    decoded_text = tokenizer.decode(train_data[:token_limit])
+    samples = decoded_text.split(tokenizer.eos_token)
+
+    print(f"\n📦 Decoding {n} full training samples:")
+    for i, sample in enumerate(samples[:n]):
+        print(f"\n📌 Sample {i + 1}:\n{sample.strip()}")
+
+if __name__ == "__main__":
+    # 用你的训练路径替换这里
+    preview_training_samples(
+        bin_path="data/arcade_new/train.bin",
+        tokenizer_path="data/arcade_new",
+        n=5,
+        token_limit=20000
+    )

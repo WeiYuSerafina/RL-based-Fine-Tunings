@@ -25,32 +25,29 @@ class NanoGPTPolicy(nn.Module):
         n_embd = gpt_config.n_embd
         self.model.transformer.wpe = torch.nn.Embedding(gpt_config.block_size, n_embd)
 
-        # 5. Load model weights
+        # 5. Load model weights and bias
         state_dict = torch.load(os.path.join(model_dir, "pytorch_model.bin"), map_location="cpu")
         new_state_dict = {}
         for key in state_dict.keys():
             new_key = key.replace("_orig_mod.", "") if key.startswith("_orig_mod.") else key
             new_state_dict[new_key] = state_dict[key]
-        self.model.load_state_dict(new_state_dict, strict=False)  # ⚠️ allow new wpe shape
+        self.model.load_state_dict(new_state_dict, strict=False)  # allow new wpe shape
 
-        print(f"✅ Successfully loaded nanoGPT-RL model from {model_dir}")
+        print(f"Successfully loaded nanoGPT-RL model from {model_dir}")
 
         # 6. Load tokenizer
         tokenizer_path = os.path.join(model_dir, "tokenizer.json")
         if os.path.exists(tokenizer_path):
             self.tokenizer = GPT2Tokenizer.from_pretrained(model_dir, local_files_only=True)
-            print(f"✅ Successfully loaded tokenizer from {model_dir}")
+            print(f"Successfully loaded tokenizer from {model_dir}")
         else:
             self.tokenizer = GPT2Tokenizer.from_pretrained("gpt2")
-            print("⚠️ Warning: Tokenizer not found in local model dir. Using GPT2 tokenizer instead.")
+            print("Warning: Tokenizer not found in local model dir. Using GPT2 tokenizer instead.")
 
         # Set pad_token if it's missing
         if self.tokenizer.pad_token is None:
             self.tokenizer.pad_token = self.tokenizer.eos_token
-            print("✅ Set pad_token to eos_token for padding support.")
-
-    def forward(self, input_ids, attention_mask=None):
-        return self.model(input_ids, attention_mask=attention_mask)[0]
+            print("Set pad_token to eos_token for padding support.")
 
     def generate(self, input_ids, max_new_tokens=100):
         block_size = self.model.config.block_size
@@ -64,6 +61,7 @@ class NanoGPTPolicy(nn.Module):
             output = self.forward(context_input)
             logits = output[0] if isinstance(output, tuple) else output  # [batch, seq_len, vocab]
             next_token_logits = logits  # 只取最后一个位置 [batch, vocab]
+            print("logits shape:", logits.shape)
 
             # Sampling with temperature
             temperature = 0.8

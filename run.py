@@ -20,7 +20,7 @@ buffer = TrajectoryBuffer()
 ppo = PPOTrainer(model, optimizer, buffer)
 
 # 3. Load dataset
-dataset_path = 'arcade-nl2code/arcade_nl2code/annotated_dataset/new_tasks_for_nanoGPT.jsonl'
+dataset_path = 'arcade-nl2code/arcade_nl2code/annotated_dataset/converted_new_tasks.jsonl'
 dataset = ArcadeDataset(dataset_path)
 
 # 4. Training loop

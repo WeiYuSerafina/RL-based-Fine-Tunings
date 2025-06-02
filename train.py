@@ -38,44 +38,43 @@ import json
 # default config values designed to train a gpt2 (124M) on OpenWebText
 # I/O
 out_dir = 'out/arcade_run'
-eval_interval = 2000
-log_interval = 1
-eval_iters = 200
+eval_interval = 20 # each 1000 times training for once verification
+log_interval = 10 # each 100 times training for once printing
+eval_iters = 20 # Sample 500 batches per evaluation (but 200 is faster)
 eval_only = False # if True, script exits right after the first eval
 always_save_checkpoint = True # if True, always save a checkpoint after each eval
 init_from = 'scratch' # 'scratch' or 'resume' or 'gpt2*'
 # wandb logging
 wandb_log = False # disabled by default
-wandb_project = 'owt'
-wandb_run_name = 'gpt2' # 'run' + str(time.time())
+wandb_project = 'nanoGPT-RL_baseline_v4'
+wandb_run_name = f'baseline_run_{time.time()}' # 'run' + str(time.time())
 # data
 dataset = 'arcade_new'
-gradient_accumulation_steps = 5 * 8 # used to simulate larger batch sizes
+gradient_accumulation_steps = 2 # used to simulate larger batch sizes
 batch_size = 8 # if gradient_accumulation_steps > 1, this is the micro-batch size
 block_size = 128  #128、256, according to your actaul data size
-
 # model
 n_layer = 4
 n_head = 4
 n_embd = 256
-dropout = 0.0 # for pretraining 0 is good, for finetuning try 0.1+
-bias = False # do we use bias inside LayerNorm and Linear layers?
+dropout = 0.1 # for pretraining 0 is good, for finetuning try 0.1+
+bias = True # do we use bias inside LayerNorm and Linear layers?
 # adamw optimizer
-learning_rate = 2e-5 # learning rate
-max_iters = 1000 # total number of training iterations
-weight_decay = 1e-1
+learning_rate = 3e-4 # learning rate
+max_iters = 200 # total number of training iterations
+weight_decay = 1e-2
 beta1 = 0.9
 beta2 = 0.95
 grad_clip = 1.0 # clip gradients at this value, or disable if == 0.0
 # learning rate decay settings
 decay_lr = True # whether to decay the learning rate
-warmup_iters = 2000 # how many steps to warm up for
-lr_decay_iters = 600000 # should be ~= max_iters per Chinchilla
-min_lr = 6e-5 # minimum learning rate, should be ~= learning_rate/10 per Chinchilla
+warmup_iters = 10 # how many steps to warm up for: it should be max_iters*5~10% =50000*0.05=2500
+lr_decay_iters = 200 # should be ~= max_iters per Chinchilla
+min_lr = 3e-5 # minimum learning rate, should be ~= learning_rate/10 per Chinchilla
 # DDP settings
 backend = 'nccl' # 'nccl', 'gloo', etc.
 # system
-device = 'cpu' # examples: 'cpu', 'cuda', 'cuda:0', 'cuda:1' etc., or try 'mps' on macbooks
+device = 'cpu'
 dtype = 'bfloat16' if torch.cuda.is_available() and torch.cuda.is_bf16_supported() else 'float16' # 'float32', 'bfloat16', or 'float16', the latter will auto implement a GradScaler
 compile = True # use PyTorch 2.0 to compile the model to be faster
 # -----------------------------------------------------------------------------
@@ -121,6 +120,34 @@ ctx = nullcontext() if device_type == 'cpu' else torch.amp.autocast(device_type=
 data_dir = os.path.join('data', dataset)
 train_data = np.array(np.memmap(os.path.join(data_dir, 'train.bin'), dtype=np.uint16, mode='r'))
 val_data = np.array(np.memmap(os.path.join(data_dir, 'val.bin'), dtype=np.uint16, mode='r'))
+
+# 解码前 5 个样本（每段 128 token）
+from transformers import GPT2Tokenizer
+
+# 初始化 tokenizer
+tokenizer = GPT2Tokenizer.from_pretrained("data/arcade_new")
+tokenizer.pad_token = tokenizer.eos_token
+eos_token_id = tokenizer.encode(tokenizer.eos_token)[0]  # 通常就是 50256
+
+# 打印前 5 个完整样本（以 <|endoftext|> 为分隔）
+print("\n📦 Decoding 5 full training samples:")
+count = 0
+start_idx = 0
+
+while count < 5 and start_idx < len(train_data):
+    try:
+        # 找下一个 <|endoftext|> 结束的位置
+        end_idx = (train_data[start_idx:].tolist()).index(eos_token_id) + start_idx
+    except ValueError:
+        break  # 没找到更多 <|endoftext|>
+
+    chunk = train_data[start_idx:end_idx + 1]
+    decoded = tokenizer.decode(chunk)
+
+    print(f"\n📌 Sample {count + 1}:\n{decoded}")
+    count += 1
+    start_idx = end_idx + 1
+
 def get_batch(split):
     data = train_data if split == 'train' else val_data
     ix = torch.randint(len(data) - block_size, (batch_size,))
@@ -190,6 +217,7 @@ elif init_from.startswith('gpt2'):
     # read off the created config params, so we can store them into checkpoint correctly
     for k in ['n_layer', 'n_head', 'n_embd', 'block_size', 'bias', 'vocab_size']:
         model_args[k] = getattr(model.config, k)
+
 # crop down the model block size if desired, using model surgery
 if block_size < model.config.block_size:
     model.crop_block_size(block_size)
@@ -197,13 +225,37 @@ if block_size < model.config.block_size:
 model.to(device)
 
 # initialize a GradScaler. If enabled=False scaler is a no-op
-scaler = torch.cuda.amp.GradScaler(enabled=(dtype == 'float16'))
+scaler = torch.cuda.amp.GradScaler(enabled=(dtype == 'float16')) # Original code
+print(f"Using device: {device}, dtype: {dtype}")
 
 # optimizer
 optimizer = model.configure_optimizers(weight_decay, learning_rate, (beta1, beta2), device_type)
+"""
 if init_from == 'resume':
     optimizer.load_state_dict(checkpoint['optimizer'])
 checkpoint = None # free up memory
+"""
+# Checkpoint Recovery Code
+ckpt_path = os.path.join(out_dir, 'ckpt.pt')
+if os.path.exists(ckpt_path):
+    checkpoint = torch.load(ckpt_path, map_location=device)
+    state_dict = checkpoint['model']
+
+    # === clean _orig_mod. prefix ===
+    unwanted_prefix = '_orig_mod.'
+    for k, v in list(state_dict.items()):
+        if k.startswith(unwanted_prefix):
+            state_dict[k[len(unwanted_prefix):]] = state_dict.pop(k)
+
+    model.load_state_dict(state_dict)
+    optimizer.load_state_dict(checkpoint['optimizer'])
+    iter_num = checkpoint.get('iter_num', 0)
+    best_val_loss = checkpoint.get('best_val_loss', 1e9)
+    print(f"✅Resumed from checkpoint at iteration {iter_num}, best val loss {best_val_loss:.4f}")
+else:
+    iter_num = 0
+    best_val_loss = 1e9
+    print("🚀 No checkpoint found, training from scratch.")
 
 # compile the model
 if compile:
@@ -248,7 +300,9 @@ def get_lr(it):
 # logging
 if wandb_log and master_process:
     import wandb
-    wandb.init(project=wandb_project, name=wandb_run_name, config=config)
+    wandb.init(project=wandb_project,name=wandb_run_name,config=config)
+    # Automatically see in the W&B graph: weights, bias and gradient
+    wandb.watch(model, log="all", log_freq=log_interval)
 
 # training loop
 X, Y = get_batch('train') # fetch the very first batch
@@ -266,7 +320,7 @@ while True:
     # evaluate the loss on train/val sets and write checkpoints
     if iter_num % eval_interval == 0 and master_process:
         losses = estimate_loss()
-        print(f"step {iter_num}: train loss {losses['train']:.4f}, val loss {losses['val']:.4f}")
+        print(f"step {iter_num}: train loss {losses['train']:.4f}, val loss {losses['val']:.4f}", flush=True)
         if wandb_log:
             wandb.log({
                 "iter": iter_num,
@@ -328,7 +382,7 @@ while True:
         if local_iter_num >= 5: # let the training loop settle a bit
             mfu = raw_model.estimate_mfu(batch_size * gradient_accumulation_steps, dt)
             running_mfu = mfu if running_mfu == -1.0 else 0.9*running_mfu + 0.1*mfu
-        print(f"iter {iter_num}: loss {lossf:.4f}, time {dt*1000:.2f}ms, mfu {running_mfu*100:.2f}%")
+        print(f"iter {iter_num}: loss {lossf:.4f}, time {dt*1000:.2f}ms, mfu {running_mfu*100:.2f}%", flush=True)
     iter_num += 1
     local_iter_num += 1
 
@@ -339,17 +393,29 @@ while True:
 if ddp:
     destroy_process_group()
 
+# === 设置保存目录 ===
 save_path = "./saved_nanoGPT"
 os.makedirs(save_path, exist_ok=True)
 
-# save pytorch_model.bin
-torch.save(model.state_dict(), os.path.join(save_path, "pytorch_model.bin"))
+# === Save baseline model: baseline_model ===
+version_id = f"v4_test"  # 手动设置 version_id = "v3"
+baseline_model_path = os.path.join(save_path, f"baseline_model_{version_id}.pt")
+torch.save(model.state_dict(), baseline_model_path)
+print(f"Saved baseline model to: {baseline_model_path}")
 
-# save config.json
-with open(os.path.join(save_path, "config.json"), "w") as f:
+# === Save HuggingFace-style model: pytorch_model ===
+pytorch_model_path = os.path.join(save_path, f"pytorch_model_{version_id}.bin")
+torch.save(model.state_dict(), pytorch_model_path)
+print(f"Saved HuggingFace-style model to: {pytorch_model_path}")
+
+# === Save model configuration: config_path ===
+config_path = os.path.join(save_path, f"config_{version_id}.json")
+with open(config_path, "w") as f:
     json.dump(model.config.__dict__, f, indent=4)
+print(f"Saved config.json to: {config_path}")
 
-# save baseline_model.pt
-torch.save(model.state_dict(), os.path.join(save_path, "baseline_model.pt"))
+# === debug bias ===
+has_bias = any("bias" in k for k in model.state_dict().keys())
+print("Whether the bias parameter exists:", has_bias)
 
-print(f"pytorch_model.bin, config.json and baseline_model.pt of nanoGPT-RL have been saved to: {save_path}")
+print(f"Baseline model, pytorch_model, config_path and checkpoint successfully saved to: {save_path}")
