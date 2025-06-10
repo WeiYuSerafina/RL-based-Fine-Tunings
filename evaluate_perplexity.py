@@ -1,152 +1,106 @@
-import torch
-import math
+import os
 import json
+import math
+import torch
 from tqdm import tqdm
-from transformers import GPT2Tokenizer
-from model import GPT, GPTConfig  # Adjust if needed
+from transformers import GPT2TokenizerFast
+from model import GPT, GPTConfig  # 你 nanoGPT 的自定义模型
 
-# -------- Custom Perplexity Calculation Function --------
-def compute_perplexity(model, tokenizer, texts, device='cpu', stride=128):
-    model.eval()
-    model.to(device)
+# === 配置 ===
+block_size = 256
+stride = 128
+device = torch.device("cpu")
+model_path = "./saved_nanoGPT"
+tokenizer_path = "data/arcade_new"
+jsonl_path = "arcade-nl2code/arcade_nl2code/annotated_dataset/merged_dataset_new_tasks_cleaned_v1.jsonl"
 
-    max_length = model.config.block_size
-    total_loss = 0.0
-    total_tokens = 0
+# === 加载 tokenizer ===
+tokenizer = GPT2TokenizerFast.from_pretrained(tokenizer_path)
 
-    for text_id, text in enumerate(texts):
-        encodings = tokenizer(text, return_tensors='pt')
-        input_ids = encodings['input_ids'].to(device)
-        seq_len = input_ids.size(1)
-        print(f"\n[Text {text_id+1}] Length: {seq_len} tokens")
+# === 初始化模型配置（与你训练时保持一致） ===
+config = GPTConfig(
+    vocab_size=tokenizer.vocab_size,
+    block_size=block_size,
+    n_layer=2,
+    n_head=2,
+    n_embd=128
+)
+model = GPT(config).to(device)
 
-        for begin_loc in range(0, seq_len, stride):
-            end_loc = min(begin_loc + max_length, seq_len)
-            input_slice = input_ids[:, begin_loc:end_loc]
-            target_ids = input_slice.clone()
-            target_ids[:, 0] = -100  # ignore first token in each slice
+# === 加载模型参数 ===
+state_dict = torch.load(os.path.join(model_path, "model.pt"), map_location=device)
+if any(k.startswith("_orig_mod.") for k in state_dict):
+    state_dict = {k.replace("_orig_mod.", ""): v for k, v in state_dict.items()}
+model.load_state_dict(state_dict)
+model.eval()
 
-            with torch.no_grad():
-                logits, loss = model(input_slice, targets=target_ids) # prove forward() in model.py return logits, loss
+print("✅ 模型权重加载成功，共参数量：", sum(p.numel() for p in model.parameters()) / 1e6, "M")
 
-            if text_id == 0 and begin_loc == 0:  # 只打印第一个样本的第一段
-                print("\n🔍 Sample Prompt:")
-                print(text)
+# === 准备 tokenized 序列和 masked labels ===
+input_ids_all = []
+label_ids_all = []
 
-                # logits shape: [batch, seq_len, vocab_size]
-                first_token_logits = logits[0, 0]  # 第一个位置的 logits
-                probs = torch.nn.functional.softmax(first_token_logits, dim=-1)
-                topk = torch.topk(probs, k=10)
+with open(jsonl_path, "r") as f:
+    for line in f:
+        data = json.loads(line)
+        prompt = data.get("prompt", "").strip()
+        completion = data.get("completion", "").replace("<|endoftext|>", "").strip()
 
-                print("\n🧠 Top-10 Predicted Tokens at Position 0:")
-                for i in range(10):
-                    token_id = topk.indices[i].item()
-                    prob = topk.values[i].item()
-                    token = tokenizer.decode([token_id])
-                    print(f"{i + 1:>2}. '{token}': {prob:.4f}")
+        if prompt and completion:
+            full_input = prompt + "\n" + completion
+            full_enc = tokenizer(full_input, return_tensors="pt")
+            prompt_enc = tokenizer(prompt, return_tensors="pt")
 
-            loss_val = loss.item()
-            total_loss += loss_val * (target_ids != -100).sum().item()
-            total_tokens += (target_ids != -100).sum().item()
+            input_ids = full_enc.input_ids[0]
+            labels = input_ids.clone()
 
-            print(f"Segment [{begin_loc}:{end_loc}] loss = {loss_val:.4f}")
+            # Mask prompt部分的label（不计算其loss）
+            labels[: prompt_enc.input_ids.shape[1]] = -100
 
-            if end_loc == seq_len:
-                break
+            input_ids_all.append(input_ids)
+            label_ids_all.append(labels)
 
-    avg_nll = total_loss / total_tokens
-    perplexity = math.exp(avg_nll)
-    print(f"Tokens: {total_tokens}, Total Loss: {total_loss:.4f}, Avg NLL: {avg_nll:.4f}, Perplexity: {perplexity:.2f}")
-    return perplexity
+# === 合并所有样本 ===
+input_ids_cat = torch.cat(input_ids_all)
+labels_cat = torch.cat(label_ids_all)
+seq_len = input_ids_cat.size(0)
 
-# -------- Main program entry --------
-if __name__ == "__main__":
-    device = 'cuda' if torch.cuda.is_available() else 'cpu'
+print(f"✅ 拼接后总 token 数量: {seq_len}")
 
-    # Initialize tokenizer (must match training)
-    tokenizer = GPT2Tokenizer.from_pretrained("data/arcade_new", padding_side="left")
-    tokenizer.pad_token = tokenizer.eos_token
+# === 计算 perplexity（滑动窗口）===
+nll_sum = 0.0
+n_tokens = 0
+prev_end_loc = 0
 
-    # 🔍 DEBUG: confirm tokenizer status
-    print("✅ Successfully loaded  tokenizer:", type(tokenizer))
-    print("🧩 pad_token:", tokenizer.pad_token)
-    print("🧠 vocab size:", tokenizer.vocab_size)
+for begin_loc in tqdm(range(0, seq_len, stride)):
+    end_loc = min(begin_loc + block_size, seq_len)
+    trg_len = end_loc - prev_end_loc
+    input_chunk = input_ids_cat[begin_loc:end_loc].unsqueeze(0).to(device)
+    label_chunk = labels_cat[begin_loc:end_loc].unsqueeze(0).to(device)
 
-    # Model configuration (must match training)
-    config = GPTConfig(
-        vocab_size=tokenizer.vocab_size,
-        block_size=256,
-        n_layer=2,
-        n_head=2,
-        n_embd=128,
-        bias=True,
-    )
+    with torch.no_grad():
+        logits = model(input_chunk)
+        logits = logits[:, :-1, :].contiguous()
+        labels_shifted = label_chunk[:, 1:].contiguous()
 
-    # Sample test texts
-    def load_test_completions(jsonl_path, n=500):
-        completions = []
-        with open(jsonl_path, 'r') as f:
-            for i, line in enumerate(f):
-                if i >= n:
-                    break
-                task = json.loads(line)
-                completion = task.get("completion", "").strip()
-                if completion:
-                    # 去掉 "<|endoftext|>"，因为 tokenizer 会自动处理
-                    completion = completion.replace("<|endoftext|>", "").strip()
-                    completions.append(completion)
-        return completions
+        loss_fn = torch.nn.CrossEntropyLoss(ignore_index=-100, reduction='none')
+        loss = loss_fn(logits.view(-1, logits.size(-1)), labels_shifted.view(-1))
 
-    # Extract 500 samples
-    test_prompts = load_test_completions("/Users/serafinayu/PycharmProjects/nanoGPT-RL/arcade-nl2code/arcade_nl2code/annotated_dataset/merged_dataset_new_tasks_cleaned_v1.jsonl", n=500)
+        nll_sum += loss.sum().item()
+        n_tokens += (labels_shifted != -100).sum().item()
 
-    # Load baseline model
-    # Load config from JSON
-    with open("saved_nanoGPT/config.json", "r") as f:
-        config_dict = json.load(f)
-    config = GPTConfig(**config_dict)
+    prev_end_loc = end_loc
+    if end_loc == seq_len:
+        break
 
-    # Load model
-    print("Loading baseline_model.pt...")
-    model = GPT(config)
-    state_dict = torch.load("saved_nanoGPT/baseline_model.pt", map_location=device)
+# === 计算并输出 perplexity ===
+if n_tokens == 0:
+    print("❌ 没有有效 token 被用于 perplexity 计算。请检查数据。")
+    exit()
 
-    # Clean DDP prefixes if any
-    if any(k.startswith("_orig_mod.") for k in state_dict.keys()):
-        state_dict = {k.replace("_orig_mod.", ""): v for k, v in state_dict.items()}
-        print("Cleaned '_orig_mod.' prefix in baseline weights")
+avg_nll = nll_sum / n_tokens
+ppl = math.exp(avg_nll)
 
-    missing, unexpected = model.load_state_dict(state_dict, strict=False)
-    print(f"Missing keys: {len(missing)} - {missing}")
-    print(f"Unexpected keys: {len(unexpected)} - {unexpected}")
-
-    # Evaluate perplexity
-    ppl = compute_perplexity(model, tokenizer, test_prompts, device)
-    print(f"\n[Baseline] Perplexity: {ppl:.4f}")
-
-    """
-    # Load PPO model
-   
-    state_dict_ppo = torch.load("saved_nanoGPT_finetuned/PPO/2025-05-14_11-48-56/pytorch_model.bin",
-                                map_location=device)
-    state_dict_ppo = {k.replace("_orig_mod.", ""): v for k, v in state_dict_ppo.items()}
-
-    missing, unexpected = model.load_state_dict(state_dict_ppo, strict=False)
-    print("PPO missing keys:", missing)
-    print("PPO unexpected keys:", unexpected)
-
-    ppl_ppo = compute_perplexity(model, tokenizer, texts, device)
-    print(f"[PPO] Perplexity: {ppl_ppo:.2f}")
-
-    # Load A2C model
-    state_dict_a2c = torch.load("saved_nanoGPT_finetuned/A2C/2025-05-14_12-12-57/pytorch_model.bin",
-                                map_location=device)
-    state_dict_a2c = {k.replace("_orig_mod.", ""): v for k, v in state_dict_a2c.items()}
-
-    missing, unexpected = model.load_state_dict(state_dict_a2c, strict=False)
-    print("A2C missing keys:", missing)
-    print("A2C unexpected keys:", unexpected)
-
-    ppl_a2c = compute_perplexity(model, tokenizer, texts, device)
-    print(f"[A2C] Perplexity: {ppl_a2c:.2f}")
-    """
+print("\n✅ 评估完成：")
+print(f"Average NLL: {avg_nll:.4f}")
+print(f"Perplexity (only on completion): {ppl:.2f}")
