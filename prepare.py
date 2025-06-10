@@ -20,6 +20,12 @@ tokenizer.pad_token = tokenizer.eos_token
 # Save tokenizer to output_dir which vocab.json, merges.txt, tokenizer_config.json will be saved
 tokenizer.save_pretrained(output_dir)
 
+"""
+def is_too_long(prompt, completion):
+    total = tokenizer(prompt + completion)["input_ids"]
+    return len(total) > block_size
+"""
+
 # === READ JSONL DATA ===
 print(f"Reading data from {dataset_path}...")
 with open(dataset_path, 'r', encoding='utf-8') as f:

@@ -83,39 +83,33 @@ if __name__ == "__main__":
     )
 
     # Sample test texts
-    def load_test_prompts(jsonl_path, n=500):
-        prompts = []
+    def load_test_completions(jsonl_path, n=500):
+        completions = []
         with open(jsonl_path, 'r') as f:
             for i, line in enumerate(f):
                 if i >= n:
                     break
                 task = json.loads(line)
-
-                instruction = task.get("instruction", "").strip()
-                context = task.get("context", "").strip()
-                solution = task.get("solution", "").strip()
-
-                if instruction and solution:  # context 可为空
-                    # 注意：GPT2 tokenizer 会自动处理 <|endoftext|>
-                    full_prompt = f"Instruction: {instruction}\nContext: {context}\n{solution}"
-                    prompts.append(full_prompt)
-
-        return prompts
-
+                completion = task.get("completion", "").strip()
+                if completion:
+                    # 去掉 "<|endoftext|>"，因为 tokenizer 会自动处理
+                    completion = completion.replace("<|endoftext|>", "").strip()
+                    completions.append(completion)
+        return completions
 
     # Extract 500 samples
-    test_prompts = load_test_prompts("/Users/serafinayu/PycharmProjects/nanoGPT-RL/arcade-nl2code/arcade_nl2code/annotated_dataset/converted_new_tasks.jsonl", n=500)
+    test_prompts = load_test_completions("/Users/serafinayu/PycharmProjects/nanoGPT-RL/arcade-nl2code/arcade_nl2code/annotated_dataset/merged_dataset_new_tasks_cleaned_v1.jsonl", n=500)
 
     # Load baseline model
     # Load config from JSON
-    with open("saved_nanoGPT/config_v4_debug.json", "r") as f:
+    with open("saved_nanoGPT/config.json", "r") as f:
         config_dict = json.load(f)
     config = GPTConfig(**config_dict)
 
     # Load model
-    print("Loading baseline_model_v4_debug.pt...")
+    print("Loading baseline_model.pt...")
     model = GPT(config)
-    state_dict = torch.load("saved_nanoGPT/baseline_model_v4_debug.pt", map_location=device)
+    state_dict = torch.load("saved_nanoGPT/baseline_model.pt", map_location=device)
 
     # Clean DDP prefixes if any
     if any(k.startswith("_orig_mod.") for k in state_dict.keys()):

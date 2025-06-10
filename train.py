@@ -45,14 +45,14 @@ eval_only = False # if True, script exits right after the first eval
 always_save_checkpoint = True # if True, always save a checkpoint after each eval
 init_from = 'scratch' # 'scratch' or 'resume' or 'gpt2*'
 # wandb logging
-wandb_log = False # disabled by default
-wandb_project = 'nanoGPT-RL_baseline_v1_bs512'
+wandb_log = True # disabled by default
+wandb_project = 'nanoGPT-RL_baseline_v1'
 wandb_run_name = f'baseline_run_{time.time()}' # 'run' + str(time.time())
 # data
 dataset = 'arcade_new'
 gradient_accumulation_steps = 2 # used to simulate larger batch sizes
 batch_size = 8 # if gradient_accumulation_steps > 1, this is the micro-batch size
-block_size = 512  # token length 128、256, according to your actaul data size: details see count_token_length.py
+block_size = 256  # token length 128、256, according to your actaul data size: details see count_token_length.py
 # model
 n_layer = 2
 n_head = 2
@@ -120,7 +120,7 @@ ctx = nullcontext() if device_type == 'cpu' else torch.amp.autocast(device_type=
 data_dir = os.path.join('data', dataset)
 train_data = np.array(np.memmap(os.path.join(data_dir, 'train.bin'), dtype=np.uint16, mode='r'))
 val_data = np.array(np.memmap(os.path.join(data_dir, 'val.bin'), dtype=np.uint16, mode='r'))
-
+"""
 # 解码前 5 个样本（每段 128 token）
 from transformers import GPT2Tokenizer
 
@@ -147,7 +147,7 @@ while count < 10 and start_idx < len(train_data):
     print(f"\n📌 Sample {count + 1}:\n{decoded}")
     count += 1
     start_idx = end_idx + 1
-
+"""
 def get_batch(split):
     data = train_data if split == 'train' else val_data
     ix = torch.randint(len(data) - block_size, (batch_size,))
@@ -398,18 +398,18 @@ save_path = "./saved_nanoGPT"
 os.makedirs(save_path, exist_ok=True)
 
 # === Save baseline model: baseline_model ===
-version_id = f"v1_bs512"  # 手动设置 version_id = "v3"
-baseline_model_path = os.path.join(save_path, f"baseline_model_{version_id}.pt")
+# version_id = f"v1"  # 手动设置 version_id = "v3"
+baseline_model_path = os.path.join(save_path, f"model.pt")
 torch.save(model.state_dict(), baseline_model_path)
 print(f"Saved baseline model to: {baseline_model_path}")
 
 # === Save HuggingFace-style model: pytorch_model ===
-pytorch_model_path = os.path.join(save_path, f"pytorch_model_{version_id}.bin")
+pytorch_model_path = os.path.join(save_path, f"pytorch_model.bin")
 torch.save(model.state_dict(), pytorch_model_path)
 print(f"Saved HuggingFace-style model to: {pytorch_model_path}")
 
 # === Save model configuration: config_path ===
-config_path = os.path.join(save_path, f"config_{version_id}.json")
+config_path = os.path.join(save_path, f"config.json")
 with open(config_path, "w") as f:
     json.dump(model.config.__dict__, f, indent=4)
 print(f"Saved config.json to: {config_path}")
