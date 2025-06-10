@@ -48,11 +48,18 @@ logging.basicConfig()
 logging.getLogger().setLevel(logging.INFO)
 
 
+# 安全引入 VisibleDeprecationWarning，兼容不同 NumPy 版本
+try:
+    from numpy import VisibleDeprecationWarning
+except ImportError:
+    class VisibleDeprecationWarning(DeprecationWarning):
+        pass
+
 # Disable some tensorflow and numpy warning.
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 warnings.simplefilter(
     action='ignore',
-    category=(FutureWarning, np.VisibleDeprecationWarning))
+    category=(FutureWarning, VisibleDeprecationWarning))
 
 
 LmExample = dataset.LmExample

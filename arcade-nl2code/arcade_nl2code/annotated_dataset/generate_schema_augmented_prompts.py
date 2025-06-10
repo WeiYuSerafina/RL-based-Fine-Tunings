@@ -730,7 +730,7 @@ def generate_prompt_with_exemplars_main():
 
 
 def main(_):
-  if bool(_TRUNCATE_METADATA_PATH_FLAG.value) == bool(_VOCAB_PATH_FLAG.value):
+  if _TRUNCATE_METADATA_PATH_FLAG.value and _VOCAB_PATH_FLAG.value:
     raise ValueError(
         'Only one of vocabulary or truncate_metaata path can be specified.')
 

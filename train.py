@@ -38,7 +38,7 @@ import json
 # default config values designed to train a gpt2 (124M) on OpenWebText
 # I/O
 out_dir = 'out/arcade_run'
-eval_interval = 20 # each 1000 times training for once verification
+eval_interval = 100 # each 1000 times training for once verification
 log_interval = 10 # each 100 times training for once printing
 eval_iters = 20 # Sample 500 batches per evaluation (but 200 is faster)
 eval_only = False # if True, script exits right after the first eval
@@ -46,30 +46,30 @@ always_save_checkpoint = True # if True, always save a checkpoint after each eva
 init_from = 'scratch' # 'scratch' or 'resume' or 'gpt2*'
 # wandb logging
 wandb_log = False # disabled by default
-wandb_project = 'nanoGPT-RL_baseline_v4'
+wandb_project = 'nanoGPT-RL_baseline_v1_bs512'
 wandb_run_name = f'baseline_run_{time.time()}' # 'run' + str(time.time())
 # data
 dataset = 'arcade_new'
 gradient_accumulation_steps = 2 # used to simulate larger batch sizes
 batch_size = 8 # if gradient_accumulation_steps > 1, this is the micro-batch size
-block_size = 128  #128、256, according to your actaul data size
+block_size = 512  # token length 128、256, according to your actaul data size: details see count_token_length.py
 # model
-n_layer = 4
-n_head = 4
-n_embd = 256
+n_layer = 2
+n_head = 2
+n_embd = 128
 dropout = 0.1 # for pretraining 0 is good, for finetuning try 0.1+
 bias = True # do we use bias inside LayerNorm and Linear layers?
 # adamw optimizer
-learning_rate = 3e-4 # learning rate
-max_iters = 200 # total number of training iterations
+learning_rate = 5e-4 # learning rate
+max_iters = 1000 # total number of training iterations
 weight_decay = 1e-2
 beta1 = 0.9
 beta2 = 0.95
 grad_clip = 1.0 # clip gradients at this value, or disable if == 0.0
 # learning rate decay settings
 decay_lr = True # whether to decay the learning rate
-warmup_iters = 10 # how many steps to warm up for: it should be max_iters*5~10% =50000*0.05=2500
-lr_decay_iters = 200 # should be ~= max_iters per Chinchilla
+warmup_iters = 50 # how many steps to warm up for: it should be max_iters*5~10% =1000*0.05=50
+lr_decay_iters = 1000 # should be ~= max_iters per Chinchilla
 min_lr = 3e-5 # minimum learning rate, should be ~= learning_rate/10 per Chinchilla
 # DDP settings
 backend = 'nccl' # 'nccl', 'gloo', etc.
@@ -130,11 +130,11 @@ tokenizer.pad_token = tokenizer.eos_token
 eos_token_id = tokenizer.encode(tokenizer.eos_token)[0]  # 通常就是 50256
 
 # 打印前 5 个完整样本（以 <|endoftext|> 为分隔）
-print("\n📦 Decoding 5 full training samples:")
+print("\n📦 Decoding 10 full training samples:")
 count = 0
 start_idx = 0
 
-while count < 5 and start_idx < len(train_data):
+while count < 10 and start_idx < len(train_data):
     try:
         # 找下一个 <|endoftext|> 结束的位置
         end_idx = (train_data[start_idx:].tolist()).index(eos_token_id) + start_idx
@@ -398,7 +398,7 @@ save_path = "./saved_nanoGPT"
 os.makedirs(save_path, exist_ok=True)
 
 # === Save baseline model: baseline_model ===
-version_id = f"v4_test"  # 手动设置 version_id = "v3"
+version_id = f"v1_bs512"  # 手动设置 version_id = "v3"
 baseline_model_path = os.path.join(save_path, f"baseline_model_{version_id}.pt")
 torch.save(model.state_dict(), baseline_model_path)
 print(f"Saved baseline model to: {baseline_model_path}")
@@ -419,3 +419,5 @@ has_bias = any("bias" in k for k in model.state_dict().keys())
 print("Whether the bias parameter exists:", has_bias)
 
 print(f"Baseline model, pytorch_model, config_path and checkpoint successfully saved to: {save_path}")
+
+

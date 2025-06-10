@@ -75,10 +75,10 @@ if __name__ == "__main__":
     # Model configuration (must match training)
     config = GPTConfig(
         vocab_size=tokenizer.vocab_size,
-        block_size=128,
-        n_layer=4,
-        n_head=4,
-        n_embd=256,
+        block_size=256,
+        n_layer=2,
+        n_head=2,
+        n_embd=128,
         bias=True,
     )
 
@@ -108,14 +108,14 @@ if __name__ == "__main__":
 
     # Load baseline model
     # Load config from JSON
-    with open("saved_nanoGPT/config_v4_test.json", "r") as f:
+    with open("saved_nanoGPT/config_v4_debug.json", "r") as f:
         config_dict = json.load(f)
     config = GPTConfig(**config_dict)
 
     # Load model
-    print("Loading baseline_model_v4_test.pt...")
+    print("Loading baseline_model_v4_debug.pt...")
     model = GPT(config)
-    state_dict = torch.load("saved_nanoGPT/baseline_model_v4_test.pt", map_location=device)
+    state_dict = torch.load("saved_nanoGPT/baseline_model_v4_debug.pt", map_location=device)
 
     # Clean DDP prefixes if any
     if any(k.startswith("_orig_mod.") for k in state_dict.keys()):
