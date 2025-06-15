@@ -26,18 +26,30 @@ def extract_question(text):
             return line.strip('# ').strip()
     return None
 
+# ✅ 修改目标：增强 context 与 code 的清晰分离，确保 Prompt/Completion 边界明确
+
+# ✅ 修改点（保留你大部分原始结构不变）：
+# - 在 clean_context() 中增强上下文分离逻辑，确保不会误包含 target code
+# - 在 clean_completion() 中增强识别并剥离 context 的逻辑
+# - 保持 prompt 构造结构稳定，只对边界识别增强
+
+# ✅ 建议的核心修改（如下代码中的注释行标出）
+
 def clean_context(context):
     lines = context.splitlines() if isinstance(context, str) else context
     keep = []
     for line in lines:
         line = line.strip()
 
-        # 去除包含问题指令的注释行
-        if line.startswith("#") and re.search(r'(how|what|which|why|who|problem|calculate|find|plot|count|create|get|show|return|determine|percentage)', line.lower()):
+        # 强化逻辑：跳过明显是答案的语句（如赋值/函数调用/输出语句）
+        if re.match(r"^([a-zA-Z_][a-zA-Z0-9_]*\s*=|return |print\()", line):
             continue
 
-        # 保留有用的代码上下文
-        if re.search(r'(import |read_csv|= pd\.|= np\.|from )', line):
+        if line.startswith("#") and re.search(r'(how|what|problem|calculate|get|return)', line.lower()):
+            continue
+
+        # 🔧 新增：只保留数据加载、导入库等上下文语句
+        if re.match(r"^(import |from |.*= *pd\.read_csv\()", line):
             keep.append(line)
 
     return '\n'.join(keep)
@@ -47,8 +59,11 @@ def clean_completion(code):
     keep = []
     for line in lines:
         line = line.strip()
-        if line.startswith("import") or "read_csv" in line or line.startswith("#"):
+
+        # 🔧 新增：移除 context 类似语句
+        if re.match(r"^(import |from |.*= *pd\.read_csv\()", line):
             continue
+
         keep.append(line)
     return '\n'.join(keep)
 

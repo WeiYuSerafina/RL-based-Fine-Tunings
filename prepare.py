@@ -8,7 +8,7 @@ from tqdm import tqdm
 from transformers import GPT2Tokenizer
 
 # === CONFIGURATION ===
-dataset_path = 'arcade-nl2code/arcade_nl2code/annotated_dataset/merged_dataset_new_tasks_cleaned_v1.jsonl'
+dataset_path = 'arcade-nl2code/arcade_nl2code/annotated_dataset/merged_dataset_new_tasks_cleaned_v2.jsonl'
 output_dir = 'data/arcade_new'
 val_ratio = 0.1
 model_name = 'gpt2'
@@ -19,12 +19,6 @@ tokenizer = GPT2Tokenizer.from_pretrained(model_name)
 tokenizer.pad_token = tokenizer.eos_token
 # Save tokenizer to output_dir which vocab.json, merges.txt, tokenizer_config.json will be saved
 tokenizer.save_pretrained(output_dir)
-
-"""
-def is_too_long(prompt, completion):
-    total = tokenizer(prompt + completion)["input_ids"]
-    return len(total) > block_size
-"""
 
 # === READ JSONL DATA ===
 print(f"Reading data from {dataset_path}...")
@@ -91,7 +85,7 @@ print("Train token count:", len(train_ids))
 print("Val token count:", len(val_ids))
 
 # === PREVIEW ===
-def preview_training_samples(bin_path, tokenizer_path, n=10, token_limit=20000):
+def preview_training_samples(bin_path, tokenizer_path, n=20, token_limit=20000):
     tokenizer = GPT2Tokenizer.from_pretrained(tokenizer_path)
     tokenizer.pad_token = tokenizer.eos_token
     train_data = np.memmap(bin_path, dtype=np.uint16, mode='r')
@@ -105,6 +99,6 @@ if __name__ == "__main__":
     preview_training_samples(
         bin_path="data/arcade_new/train.bin",
         tokenizer_path="data/arcade_new",
-        n=10,
+        n=20,
         token_limit=20000
     )

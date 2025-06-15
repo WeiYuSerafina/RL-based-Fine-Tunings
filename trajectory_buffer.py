@@ -1,7 +1,7 @@
 import torch
 
 class TrajectoryBuffer:
-    def __init__(self, max_size=100):
+    def __init__(self, max_size=500):
         self.prompts = []
         self.generated_codes = []
         self.rewards = []
@@ -21,7 +21,7 @@ class TrajectoryBuffer:
         self.log_probs.append(log_prob)
 
     # sample data (Not used yet, reserved)
-    def sample(self, batch_size=32):
+    def sample(self, batch_size=8):
         actual_batch_size = min(batch_size, len(self.prompts))
         indices = torch.randint(0, len(self.prompts), (actual_batch_size,))
         sampled_prompts = [self.prompts[i] for i in indices]

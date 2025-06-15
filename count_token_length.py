@@ -7,7 +7,7 @@ tokenizer.pad_token = tokenizer.eos_token  # 防止 pad 报错
 
 lengths = []
 
-with open("arcade-nl2code/arcade_nl2code/annotated_dataset/merged_dataset_new_tasks_cleaned_v1.jsonl", "r") as f:
+with open("arcade-nl2code/arcade_nl2code/annotated_dataset/merged_dataset_new_tasks_cleaned_v2.jsonl", "r") as f:
     for line in f:
         item = json.loads(line)
 

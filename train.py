@@ -46,7 +46,7 @@ always_save_checkpoint = True # if True, always save a checkpoint after each eva
 init_from = 'scratch' # 'scratch' or 'resume' or 'gpt2*'
 # wandb logging
 wandb_log = True # disabled by default
-wandb_project = 'nanoGPT-RL_baseline_v1'
+wandb_project = 'nanoGPT-RL_baseline_v2'
 wandb_run_name = f'baseline_run_{time.time()}' # 'run' + str(time.time())
 # data
 dataset = 'arcade_new'

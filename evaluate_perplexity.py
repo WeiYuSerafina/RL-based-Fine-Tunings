@@ -12,7 +12,7 @@ stride = 128
 device = torch.device("cpu")
 model_path = "./saved_nanoGPT"
 tokenizer_path = "data/arcade_new"
-jsonl_path = "arcade-nl2code/arcade_nl2code/annotated_dataset/merged_dataset_new_tasks_cleaned_v1.jsonl"
+jsonl_path = "arcade-nl2code/arcade_nl2code/annotated_dataset/merged_dataset_new_tasks_cleaned_v2.jsonl"
 
 # === 加载 tokenizer ===
 tokenizer = GPT2TokenizerFast.from_pretrained(tokenizer_path)
@@ -44,7 +44,7 @@ with open(jsonl_path, "r") as f:
     for line in f:
         data = json.loads(line)
         prompt = data.get("prompt", "").strip()
-        completion = data.get("completion", "").replace("<|endoftext|>", "").strip()
+        completion = data.get("completion", "").replace("<|endoftext|>", "").satrip()
 
         if prompt and completion:
             full_input = prompt + "\n" + completion
