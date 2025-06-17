@@ -10,9 +10,15 @@ from nano_gpt_policy import NanoGPTPolicy
 # === 1. 模型与组件初始化 ===
 tokenizer = AutoTokenizer.from_pretrained("data/arcade_new")
 model = NanoGPTPolicy("saved_nanoGPT")
-optimizer = optim.AdamW(model.parameters(), lr=2e-5)
+# Check if the state_dict key is correct (optional validation)
+state_dict = torch.load("saved_nanoGPT/pytorch_model.bin", map_location="cpu")
+print("Loaded keys from state_dict:", list(state_dict.keys())[:5])
+optimizer = optim.AdamW(model.parameters(), lr=1e-7) # 2e-5 降低到 1e-7
 buffer = TrajectoryBuffer(max_size=500)
 trainer = PPOTrainer(model, tokenizer, optimizer, buffer)
+# Check the model loaded correctly
+print("PPOTrainer initialized.")
+print(f"Number of model parameters: {sum(p.numel() for p in model.parameters())}")
 dataset = ArcadeDataset("arcade-nl2code/arcade_nl2code/annotated_dataset/merged_dataset_new_tasks_cleaned_v2.jsonl")
 
 # === 2. 用当前策略填充 buffer（采样 + 计算 reward + 存入）===

@@ -14,6 +14,25 @@ class PPOTrainer:
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.model.to(self.device)
 
+        # 检查logits正常性
+        self._check_logits_sanity()
+
+        # 初始化 NaN 计数器
+        self.nan_counter = 0
+
+        self.max_grad_norm = 0.1  # 1.0 has gradient exploration, GPT-2 微调（RLHF / PPO-0.25, 0.5, 最多 1.0
+
+    def _check_logits_sanity(self):
+        self.model.eval()
+        with torch.no_grad():
+            dummy_input = self.tokenizer("print('Hello')", return_tensors="pt").input_ids.to(self.device)
+            output = self.model(dummy_input)
+            logits = output.logits if hasattr(output, 'logits') else output[0]
+            mean = logits.float().mean().item()
+            print("✅ Dummy logits mean:", mean)
+            assert not torch.isnan(logits).any(), "❌ NaN found in dummy logits!"
+            assert abs(mean) < 100, "⚠️ Logits mean unusually large! Possible instability."
+
     def rollout(self, prompts, max_len=None):
         """
         使用当前策略对多个 prompts 做 rollout，返回：
@@ -62,8 +81,12 @@ class PPOTrainer:
             print("❌ Invalid rewards detected (NaN or Inf), skipping loss computation.")
             return torch.tensor(float('nan')).to(rewards.device)
 
-        # 2. PPO核心损失计算
-        loss = -torch.min(ratio * rewards, clipped_ratio * rewards).mean()
+        # 2. PPO核心损失计算, 加入KL 惩罚项
+        ppo_core_loss = -torch.min(ratio * rewards, clipped_ratio * rewards).mean()
+        kl_div = torch.mean(old_log_probs - new_log_probs)
+        kl_penalty = 0.05 * kl_div  # 你可以调小
+
+        loss =  ppo_core_loss  + 0.1 * kl_penalty
 
         # 3. loss 数值异常检查
         if torch.isnan(loss):
@@ -121,11 +144,11 @@ class PPOTrainer:
             if isinstance(logits, tuple):
                 logits = logits[0]
         except Exception as e:
-            print(f"❌ model.forward 异常: {e}")
+            print(f"❌ model.forward exception: {e}")
             return torch.full((input_ids.size(0),), float('nan')).to(self.model.device)
 
         if torch.isnan(logits).any() or torch.isinf(logits).any():
-            print("❌ logits 中含 NaN 或 Inf，跳过 log_prob 计算")
+            print("❌ logits contains NaN or Inf, skip log_prob calculation")
             return torch.full((logits.size(0),), float('nan')).to(logits.device)
 
         # softmax 得到 log_probs
@@ -182,6 +205,18 @@ class PPOTrainer:
         # ✅ [新增] reward tensor 转换 + 极小值防御
         rewards = torch.tensor(rewards, dtype=torch.float32).to(self.model.device)
 
+        # ✅ 标准化 rewards，并加极小值防御（防止 std 太小导致爆炸）
+        rewards_std = rewards.std()
+        if rewards_std < 1e-8:
+            print("⚠️ reward.std() is too small; skipping standardization")
+        else:
+            rewards = (rewards - rewards.mean()) / (rewards_std + 1e-8)
+
+        # ✅ 添加 reward clamp 限制范围，防止极端值爆炸
+        rewards = torch.clamp(rewards, -5.0, 5.0)
+        print(f"📊 Reward range: min={rewards.min():.4f}, max={rewards.max():.4f}")
+
+
         if torch.isnan(rewards).any() or torch.isinf(rewards).any():
             print("❌ Invalid reward in buffer (NaN or Inf), skipping update.")
             return
@@ -210,8 +245,13 @@ class PPOTrainer:
                 return
 
         # ✅ 3. 打印关键输入，定位崩溃用
-        print("🧪 Prompt example:", prompts[0][:80].replace('\n', ' '))
-        print("🧪 Generated example:", generated_codes[0][:80].replace('\n', ' '))
+        def safe_print(label, text, max_len=1000):
+            text = text.replace("\n", " ")
+            if len(text) > max_len:
+                text = text[:max_len] + " ...[truncated]"
+            print(f"{label} {text}")
+        safe_print("🧪 Prompt example:", prompt)
+        safe_print("🧪 Generated example:", gen)
         input_ids = self.tokenizer(prompts[0] + generated_codes[0], return_tensors="pt").input_ids
         print("🧪 Full input len:", input_ids.size(1))
 
@@ -241,13 +281,32 @@ class PPOTrainer:
         # 计算 PPO 损失
         loss = self.ppo_loss(old_log_probs, new_log_probs, rewards)
 
+        # 检查 loss 是否崩溃
         if torch.isnan(loss) or torch.isinf(loss):
             print("❌ NaN or Inf detected in PPO loss, skipping this update.")
+            self.nan_counter += 1
+            if self.nan_counter >= 3:
+                print("❌ Exiting training due to 3 consecutive NaN losses.")
+                exit()  # 或 raise RuntimeError("Too many NaNs in PPO")
             return
+        else:
+            self.nan_counter = 0  # 恢复正常时重置计数器
 
-        # 反向传播 + 参数更新
+        # 反向传播 + 参数更新/Backpropagation + parameter update
         self.optimizer.zero_grad()
         loss.backward()
+
+        # 监控梯度范数/Monitoring the gradient norm
+        total_norm = torch.norm(torch.stack([
+            torch.norm(p.grad.detach(), 2) for p in self.model.parameters() if p.grad is not None
+        ]))
+        print(f"🚨 Pre-clip Gradient Norm: {total_norm.item():.4f}")
+
+        # Gradient explosion fix, limit the maximum gradient norm
+        torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=self.max_grad_norm)
+
         self.optimizer.step()
 
-        print(f"PPO Update Done! Loss = {loss.item():.4f}")
+        print(f"✂️ Applied gradient clipping with max_norm = {self.max_grad_norm}")
+
+        print(f"✅ PPO Update Done! Loss = {loss.item():.4f}")
