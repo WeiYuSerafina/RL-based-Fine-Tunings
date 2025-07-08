@@ -24,11 +24,20 @@ class TrajectoryBuffer:
     def sample(self, batch_size=8):
         actual_batch_size = min(batch_size, len(self.prompts))
         indices = torch.randint(0, len(self.prompts), (actual_batch_size,))
-        sampled_prompts = [self.prompts[i] for i in indices]
-        sampled_generated_codes = [self.generated_codes[i] for i in indices]
-        sampled_rewards = torch.tensor([self.rewards[i] for i in indices])
-        sampled_log_probs = torch.tensor([self.log_probs[i] for i in indices])
-        return sampled_prompts, sampled_generated_codes, sampled_rewards, sampled_log_probs
+
+        # 将张量索引 i.item() 转成 Python int
+        sampled_prompts = [self.prompts[i.item()] for i in indices]
+        sampled_codes = [self.generated_codes[i.item()] for i in indices]
+
+        # 显式 dtype=torch.float32，避免与 new_log_probs 精度不一致
+        sampled_rewards = torch.tensor(
+            [self.rewards[i.item()] for i in indices], dtype=torch.float32
+        )
+        sampled_log_probs = torch.tensor(
+            [self.log_probs[i.item()] for i in indices], dtype=torch.float32
+        )
+
+        return sampled_prompts, sampled_codes, sampled_rewards, sampled_log_probs
 
     # clear buffer
     def clear(self):

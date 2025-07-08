@@ -10,9 +10,10 @@ from model import GPT, GPTConfig  # 你 nanoGPT 的自定义模型
 block_size = 256
 stride = 128
 device = torch.device("cpu")
-model_path = "./saved_nanoGPT"
-tokenizer_path = "data/arcade_new"
-jsonl_path = "arcade-nl2code/arcade_nl2code/annotated_dataset/merged_dataset_new_tasks_cleaned_v2.jsonl"
+model_path = "out/mbpp_baseline_v2"
+device = 'cuda' if torch.cuda.is_available() else 'cpu'
+tokenizer_path = "data/mbpp_new"
+jsonl_path = "/Users/serafinayu/PycharmProjects/nanoGPT-RL/google-research/mbpp/mbpp_train.jsonl"
 
 # === 加载 tokenizer ===
 tokenizer = GPT2TokenizerFast.from_pretrained(tokenizer_path)
@@ -21,16 +22,32 @@ tokenizer = GPT2TokenizerFast.from_pretrained(tokenizer_path)
 config = GPTConfig(
     vocab_size=tokenizer.vocab_size,
     block_size=block_size,
-    n_layer=2,
-    n_head=2,
-    n_embd=128
+    n_layer=4,
+    n_head=4,
+    n_embd=256
 )
 model = GPT(config).to(device)
-
+"""
 # === 加载模型参数 ===
 state_dict = torch.load(os.path.join(model_path, "model.pt"), map_location=device)
 if any(k.startswith("_orig_mod.") for k in state_dict):
     state_dict = {k.replace("_orig_mod.", ""): v for k, v in state_dict.items()}
+model.load_state_dict(state_dict)
+model.eval()
+
+print("✅ 模型权重加载成功，共参数量：", sum(p.numel() for p in model.parameters()) / 1e6, "M")
+"""
+
+# === 加载 checkpoint ===
+checkpoint_file = os.path.join(model_path, "ckpt.pt")  # 或 "checkpoint.pt" 如果文件叫这个
+ckpt = torch.load(checkpoint_file, map_location=device)
+state_dict = ckpt['model']  # 提取模型权重部分
+
+# === 清洗可能存在的 _orig_mod. 前缀 ===
+if any(k.startswith("_orig_mod.") for k in state_dict):
+    state_dict = {k.replace("_orig_mod.", ""): v for k, v in state_dict.items()}
+
+# === 加载权重到模型 ===
 model.load_state_dict(state_dict)
 model.eval()
 
@@ -44,12 +61,18 @@ with open(jsonl_path, "r") as f:
     for line in f:
         data = json.loads(line)
         prompt = data.get("prompt", "").strip()
-        completion = data.get("completion", "").replace("<|endoftext|>", "").satrip()
+        completion = data.get("completion", "").replace("<|endoftext|>", "").strip()
 
         if prompt and completion:
-            full_input = prompt + "\n" + completion
+            # full_input = prompt + "\n" + completion
+            # full_enc = tokenizer(full_input, return_tensors="pt")
+            # prompt_enc = tokenizer(prompt, return_tensors="pt")
+            # 用 <|endoftext|> 作为分隔符
+            full_input = prompt + tokenizer.eos_token + completion
+            # 计算 prompt 部分长度时，要把这个 eos_token 一并算进去
+            prompt_enc = tokenizer(prompt + tokenizer.eos_token, return_tensors="pt")
+            # 再整体编码
             full_enc = tokenizer(full_input, return_tensors="pt")
-            prompt_enc = tokenizer(prompt, return_tensors="pt")
 
             input_ids = full_enc.input_ids[0]
             labels = input_ids.clone()
@@ -65,7 +88,7 @@ input_ids_cat = torch.cat(input_ids_all)
 labels_cat = torch.cat(label_ids_all)
 seq_len = input_ids_cat.size(0)
 
-print(f"✅ 拼接后总 token 数量: {seq_len}")
+print(f"✅ The total number of tokens after concatenation: {seq_len}")
 
 # === 计算 perplexity（滑动窗口）===
 nll_sum = 0.0
@@ -95,12 +118,12 @@ for begin_loc in tqdm(range(0, seq_len, stride)):
 
 # === 计算并输出 perplexity ===
 if n_tokens == 0:
-    print("❌ 没有有效 token 被用于 perplexity 计算。请检查数据。")
+    print("❌ No valid token was used in the perplexity calculation. Please check the dataset.")
     exit()
 
 avg_nll = nll_sum / n_tokens
 ppl = math.exp(avg_nll)
 
-print("\n✅ 评估完成：")
+print("\n✅ Evaluation completed：")
 print(f"Average NLL: {avg_nll:.4f}")
 print(f"Perplexity (only on completion): {ppl:.2f}")

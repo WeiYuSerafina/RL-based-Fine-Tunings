@@ -1,7 +1,7 @@
 import json
 import random
 
-class ArcadeDataset:
+class MBPPDataset:
     def __init__(self, path):
         self.data = []
         self.prompt2completion = {}

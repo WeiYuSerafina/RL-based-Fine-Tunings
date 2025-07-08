@@ -109,9 +109,9 @@ class Block(nn.Module):
 class GPTConfig:
     block_size: int = 256
     vocab_size: int = 50257 # GPT-2 vocab_size of 50257, padded up to nearest multiple of 64 for efficiency
-    n_layer: int = 2
-    n_head: int = 2
-    n_embd: int = 128
+    n_layer: int = 4
+    n_head: int = 4
+    n_embd: int = 256
     dropout: float = 0.1
     bias: bool = True # True: bias in Linears and LayerNorms, like GPT-2. False: a bit better and faster
 
@@ -190,7 +190,7 @@ class GPT(nn.Module):
 
             return logits, loss
         else:
-            return logits  #  PPO 训练使用这里的 full logits
+            return logits # PPO training uses the full logits here
 
     def crop_block_size(self, block_size):
         # model surgery to decrease the block size if necessary
@@ -205,7 +205,7 @@ class GPT(nn.Module):
 
     @classmethod
     def from_pretrained(cls, model_type, override_args=None):
-        assert model_type in {'gpt2', 'gpt2-medium', 'gpt2-large', 'gpt2-xl'}
+        assert model_type in { }
         override_args = override_args or {} # default to empty dict
         # only dropout can be overridden see more notes below
         assert all(k == 'dropout' for k in override_args)
@@ -313,7 +313,9 @@ class GPT(nn.Module):
             # if the sequence context is growing too long we must crop it at block_size
             idx_cond = idx if idx.size(1) <= self.config.block_size else idx[:, -self.config.block_size:]
             # forward the model to get the logits for the index in the sequence
-            logits, _ = self(idx_cond)
+            # logits, _ = self(idx_cond)
+            out = self(idx_cond)
+            logits = out[0] if isinstance(out, tuple) else out
             # pluck the logits at the final step and scale by desired temperature
             logits = logits[:, -1, :] / temperature
             # optionally crop the logits to only the top k options

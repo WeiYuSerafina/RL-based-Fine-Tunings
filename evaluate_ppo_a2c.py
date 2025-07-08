@@ -1,20 +1,33 @@
 import torch
 import json
-from nano_gpt_policy import NanoGPTPolicy  # 自定义模型类
+from nano_gpt_ppo_policy import NanoGPTPolicy  # 自定义模型类
 
+import json
 
-def load_prompt_completion_pairs(jsonl_path, max_samples=1000):
+def load_prompt_completion_pairs(path: str, max_samples: int = 1000):
+    # 1. 读文件（jsonl 或 json）
+    if path.endswith(".jsonl"):
+        with open(path, "r", encoding="utf-8") as f:
+            # 直接构成列表，后面可 len()、slice()
+            records = [json.loads(line) for line in f]
+    else:  # .json
+        with open(path, "r", encoding="utf-8") as f:
+            records = json.load(f)                     # list[dict]
+
+    # 2. 提取 prompt + completion/code
     pairs = []
-    with open(jsonl_path, 'r', encoding='utf-8') as f:
-        for line in f:
-            data = json.loads(line)
-            prompt = data.get("prompt", "").strip()
-            completion = data.get("completion", "").strip()
-            if prompt and completion:
-                full = prompt + " " + completion
-                pairs.append((prompt, full))
+    for obj in records:
+        prompt = obj.get("prompt", "").strip()
+
+        # MBPP train/valid 用 "completion"，sanitized 用 "code"
+        completion = (obj.get("completion")             # 优先取 completion
+                      or obj.get("code", "")).strip()    # 否则取 code
+
+        if prompt and completion:
+            pairs.append((prompt, f"{prompt} {completion}"))
             if len(pairs) >= max_samples:
                 break
+
     return pairs
 
 
@@ -89,7 +102,8 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     # 1. Load model and tokenizer
-    model = NanoGPTPolicy(args.model_path)
+    model = NanoGPTPolicy(args.model_path,
+                          tokenizer_path="./data/mbpp_new")  # ← 显式给路径
     tokenizer = model.tokenizer
 
     # 2. Load prompt + completion pairs
@@ -103,6 +117,6 @@ if __name__ == "__main__":
     """
 python evaluate_ppo_a2c.py \
   --model_path saved_nanoGPT_finetuned/PPO_best_step_0 \
-  --jsonl_path arcade-nl2code/arcade_nl2code/annotated_dataset/merged_dataset_new_tasks_cleaned_v2.jsonl \
+  --jsonl_path google-research/mbpp/sanitized-mbpp.json \
   --max_samples 500
     """

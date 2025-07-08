@@ -3,22 +3,22 @@ import json
 import random
 import pickle
 import numpy as np
-import re
 from tqdm import tqdm
 from transformers import GPT2Tokenizer
 
 # === CONFIGURATION ===
-dataset_path = 'arcade-nl2code/arcade_nl2code/annotated_dataset/merged_dataset_new_tasks_cleaned_v2.jsonl'
-output_dir = 'data/arcade_new'
+dataset_path = 'google-research/mbpp/mbpp_train.jsonl'
+output_dir = 'data/mbpp_new'
 val_ratio = 0.1
 model_name = 'gpt2'
 block_size = 256
 
 # === LOAD TOKENIZER ===
-tokenizer = GPT2Tokenizer.from_pretrained(model_name)
+tokenizer = GPT2Tokenizer.from_pretrained(model_name, add_prefix_space=True)
 tokenizer.pad_token = tokenizer.eos_token
 # Save tokenizer to output_dir which vocab.json, merges.txt, tokenizer_config.json will be saved
 tokenizer.save_pretrained(output_dir)
+eos = tokenizer.eos_token_id          # 先拿到 eos id
 
 # === READ JSONL DATA ===
 print(f"Reading data from {dataset_path}...")
@@ -31,6 +31,7 @@ n_val = int(val_ratio * n_total)
 train_lines = lines[:-n_val]
 val_lines = lines[-n_val:]
 
+# === DEFINE ENCODE ===
 def encode(lines, split):
     ids = []
     skipped = 0
@@ -52,7 +53,7 @@ def encode(lines, split):
                 skipped += 1
                 continue
 
-            ids.extend(token_ids)
+            ids.extend(token_ids + [eos])
         except Exception:
             skipped += 1
             continue
@@ -60,7 +61,7 @@ def encode(lines, split):
     print(f"⚠️ Skipped {skipped} samples in {split} set.")
     return ids
 
-# === ENCODE ===
+# === CALL ENCODE ===
 train_ids = encode(train_lines, "train")
 val_ids = encode(val_lines, "val")
 
@@ -85,7 +86,7 @@ print("Train token count:", len(train_ids))
 print("Val token count:", len(val_ids))
 
 # === PREVIEW ===
-def preview_training_samples(bin_path, tokenizer_path, n=20, token_limit=20000):
+def preview_training_samples(bin_path, tokenizer_path, n=10, token_limit=20000):
     tokenizer = GPT2Tokenizer.from_pretrained(tokenizer_path)
     tokenizer.pad_token = tokenizer.eos_token
     train_data = np.memmap(bin_path, dtype=np.uint16, mode='r')
@@ -93,12 +94,12 @@ def preview_training_samples(bin_path, tokenizer_path, n=20, token_limit=20000):
     samples = decoded_text.split(tokenizer.eos_token)
     print(f"\n📦 Preview {n} training samples:")
     for i, sample in enumerate(samples[:n]):
-        print(f"\n📌 Sample {i + 1}:\n{sample.strip()}")
+        print(f"\n📌 Sample {i + 1}:\n{sample.strip()[:1000]}")
 
 if __name__ == "__main__":
     preview_training_samples(
-        bin_path="data/arcade_new/train.bin",
-        tokenizer_path="data/arcade_new",
-        n=20,
+        bin_path="data/mbpp_new/train.bin",
+        tokenizer_path="data/mbpp_new",
+        n=10,
         token_limit=20000
     )

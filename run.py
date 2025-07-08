@@ -3,12 +3,13 @@ import os
 import json
 import wandb
 import argparse
-from nano_gpt_policy import NanoGPTPolicy
+from nano_gpt_ppo_policy import NanoGPTPolicy
 from ppo_trainer import PPOTrainer
 from trajectory_buffer import TrajectoryBuffer
 from reward_function import reward_function
 from dataset_loader import ArcadeDataset
 from train_ppo import train_ppo
+
 
 # === Sweep 参数设置 ===
 sweep_config = {
@@ -30,7 +31,7 @@ def main():
     wandb.init(
         project="nanoGPT-RL-PPO",
         config={
-            "lr": 2e-5,
+            "lr": 1e-5, # optimizer in train.ppo also same
             "batch_size": 8,
             "max_new_tokens": 100,
             "early_stop_patience": 100,
@@ -49,7 +50,7 @@ def main():
     buffer = TrajectoryBuffer()
     ppo = PPOTrainer(model, tokenizer, optimizer, buffer)
 
-    dataset_path = 'arcade-nl2code/arcade_nl2code/annotated_dataset/merged_dataset_new_tasks_cleaned_v2.jsonl'
+    dataset_path = 'arcade-nl2code/arcade_nl2code/annotated_dataset/merged_dataset_for_ppo_a2c.jsonl'
     dataset = ArcadeDataset(dataset_path)
 
     best_model_state = None

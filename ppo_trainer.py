@@ -2,6 +2,7 @@ import torch
 import torch.nn.functional as F
 
 class PPOTrainer:
+    # === 1. Constructor function: Initialize PPOTrainer ===
     def __init__(self, model, tokenizer, optimizer, buffer, clip_epsilon=0.2, config=None):
         self.model = model
         self.tokenizer = tokenizer
@@ -20,8 +21,15 @@ class PPOTrainer:
         # 初始化 NaN 计数器
         self.nan_counter = 0
 
-        self.max_grad_norm = 0.1  # 1.0 has gradient exploration, GPT-2 微调（RLHF / PPO-0.25, 0.5, 最多 1.0
+        self.max_grad_norm = 0.5  # GPT-2 微调（RLHF / PPO-0.25, 0.5, 最多 1.0
 
+        self.update_step = 0
+
+        # ------- compatible with self.model.config --------
+        if not hasattr(self.model, "config") and hasattr(self.model, "model"):
+            self.model.config = self.model.model.config
+
+    # === 2. Model sanity check: ensure that the logits under dummy input have no NaN and the mean is normal ===
     def _check_logits_sanity(self):
         self.model.eval()
         with torch.no_grad():
@@ -33,23 +41,29 @@ class PPOTrainer:
             assert not torch.isnan(logits).any(), "❌ NaN found in dummy logits!"
             assert abs(mean) < 100, "⚠️ Logits mean unusually large! Possible instability."
 
+
+    # === 3. Generate output for a batch of prompts using the current strategy for subsequent reward evaluation ===
     def rollout(self, prompts, max_len=None):
         """
         使用当前策略对多个 prompts 做 rollout，返回：
-        - 生成的文本 generated_texts（用于计算 reward）
-        - prompts（原始输入，方便与生成对齐）
-        - generated_ids_list（生成的 token ids，用于调试或进一步分析）
+        - generated_texts：生成的文本（用于 reward 计算）
+        - prompts：原始输入
+        - generated_ids_list：生成的 token ids（调试用）
+        - prompt_lens：每个 prompt 的 token 长度（用于后续 log_probs 对齐）
         """
         if max_len is None:
-            max_len = getattr(self.config, "max_new_tokens", 100)  # ✅ 默认值为 100
+            max_len = getattr(self.config, "max_new_tokens", 100)  # 默认值为 100
 
         self.model.eval()
         generated_texts = []
         generated_ids_list = []
+        prompt_lens = []
 
         for prompt in prompts:
             # 编码 prompt 为 input_ids
             input_ids = self.tokenizer(prompt, return_tensors="pt").input_ids.to(self.device)
+            prompt_len = input_ids.shape[-1]  # 记录当前 prompt 的长度
+            prompt_lens.append(prompt_len)  # 添加到列表中
 
             with torch.no_grad():
                 # 使用贪婪策略生成 token，不返回 log_probs（后续整句再 forward）
@@ -66,46 +80,71 @@ class PPOTrainer:
             generated_text = self.tokenizer.decode(new_token_ids, skip_special_tokens=True)
             generated_texts.append(generated_text)
 
-        return generated_texts, prompts, generated_ids_list
+        return generated_texts, prompts, generated_ids_list, prompt_lens
 
 
+    # === 4. Calculate PPO loss function (Clipped Objective + KL penalty) ===
     def ppo_loss(self, old_log_probs, new_log_probs, rewards):
         """
-        计算 PPO 损失函数
+        Using Advantage instead of Reward to calculate PPO losses
         """
+        # 1. 计算比例项 ratio
         ratio = torch.exp(new_log_probs - old_log_probs)
+        # PPO Clip Range: clip_epsilon sets 0.2 as default
         clipped_ratio = torch.clamp(ratio, 1 - self.clip_epsilon, 1 + self.clip_epsilon)
 
-        # 1. 检查 reward 是否异常
+        # 2. 检查 reward 是否异常
         if torch.isnan(rewards).any() or torch.isinf(rewards).any():
             print("❌ Invalid rewards detected (NaN or Inf), skipping loss computation.")
             return torch.tensor(float('nan')).to(rewards.device)
 
-        # 2. PPO核心损失计算, 加入KL 惩罚项
-        ppo_core_loss = -torch.min(ratio * rewards, clipped_ratio * rewards).mean()
-        kl_div = torch.mean(old_log_probs - new_log_probs)
-        kl_penalty = 0.05 * kl_div  # 你可以调小
+        # 3. 计算 Advantage（代替 reward），此处用 reward - mean 作为近似 Advantage
+        # Advantages 择标准化：
+        advantages = (rewards - rewards.mean()) / (rewards.std() + 1e-8)
+        advantages = torch.clamp(advantages, -5.0, 5.0)
 
+        # 注意：如果没有 value function，这种 "centered reward" 是合理的近似
+        # advantages = rewards - rewards.mean()
+
+        # 4. PPO核心损失计算（用 Advantage 替代 reward）
+        ppo_core_loss = -torch.min(ratio * advantages, clipped_ratio * advantages).mean()
+
+        # 5. KL 惩罚项(option)
+        # kl_div = torch.mean(old_log_probs - new_log_probs)
+        # kl_penalty = 0.05 * kl_div  # 你可以根据训练稳定性调低
+
+        #5. KL 惩罚项（使用动态系数）
+        # 可选：传入 step 或 epoch 参数
+        step = getattr(self, "update_step", 0)  # 若未设定 step，默认为 0
+        # 动态 KL 系数（早期较小，后期增强以防策略发散）
+        kl_coeff = 0.1 if step < 200 else 0.3
+        # 计算 KL 差异并加权
+        kl_div = torch.mean(old_log_probs - new_log_probs)
+        kl_penalty = kl_coeff * kl_div
+
+        # 6.总损失
         loss =  ppo_core_loss  + 0.1 * kl_penalty
 
-        # 3. loss 数值异常检查
+        # 7. loss 数值异常检查
         if torch.isnan(loss):
             print("❌ NaN loss detected in PPO. Dumping debug info:")
-            print("🔍 old_log_probs:", old_log_probs)
-            print("🔍 new_log_probs:", new_log_probs)
-            print("🎯 ratio:", ratio)
-            print("🎯 clipped_ratio:", clipped_ratio)
-            print("🎯 rewards:", rewards)
-            print("🎯 loss (raw):", loss)
+            print("old_log_probs:", old_log_probs)
+            print("new_log_probs:", new_log_probs)
+            print("ratio:", ratio)
+            print("clipped_ratio:", clipped_ratio)
+            print("rewards:", rewards)
+            print("loss (raw):", loss)
             return torch.tensor(float('nan')).to(loss.device)
 
-        # ✅ 4. loss 为负值（理论上不应该）的特殊处理（可选）
+        # 8. loss 为负值（理论上不应该）的特殊处理（可选）
         if loss.item() < 0:
             print(f"⚠️ Warning: PPO loss is negative ({loss.item():.4f}), check reward or log_prob stability.")
 
         return loss
 
-    def compute_log_probs(self, inputs, actions):
+
+    # === 5. 拼接 prompt + generated，forward 后提取生成部分的 token log_probs，并按句子维度累加 ===
+    def compute_log_probs(self, inputs, actions, prompt_lens):
         """
         对拼接后的 [prompt + generated] 整句 forward，再提取 generated 部分的 log_probs。
         """
@@ -119,12 +158,14 @@ class PPOTrainer:
         joined_encodings = self.tokenizer(
             joined_texts,
             return_tensors="pt",
+            # 如果 prompt 长度不一致，tokenizer 会对较短的输入右侧填充 <pad> token
             padding=True,
             truncation=True,
-            max_length=self.model.model.config.block_size
+            max_length=self.model.config.block_size
         ).to(self.model.device)
 
         input_ids = joined_encodings.input_ids
+        # attention_mask 会确保模型只处理有效 token（非 padding）
         attention_mask = joined_encodings.attention_mask
 
         # 编码 generated（用于获取 generated token 长度）
@@ -136,7 +177,6 @@ class PPOTrainer:
             max_length=self.model.model.config.block_size
         ).to(self.model.device)
 
-        action_ids = action_encodings.input_ids
         gen_lengths = action_encodings.attention_mask.sum(dim=1)  # 每条 generated 的长度 [B]
 
         try:
@@ -163,8 +203,13 @@ class PPOTrainer:
                 gathered_log_probs.append(torch.tensor(float('nan')).to(self.model.device))
                 continue
 
-            gen_token_ids = input_ids[i][-gen_len:]  # [gen_len]
-            gen_log_probs = log_probs[i][-gen_len:, :]  # [gen_len, V]
+            # （⚠️ 注意：可能还需要 min(prompt_len + gen_len, seq_len) 截断保护）
+            prompt_len = prompt_lens[i]
+            gen_token_ids = input_ids[i][prompt_len:prompt_len + gen_len]
+            gen_log_probs = log_probs[i][prompt_len:prompt_len + gen_len, :]
+
+            # gen_token_ids = input_ids[i][-gen_len:]  # [gen_len]
+            # gen_log_probs = log_probs[i][-gen_len:, :]  # [gen_len, V]
 
             # 检查是否越界（token_id > vocab_size）
             vocab_size = log_probs.shape[-1]
@@ -185,6 +230,8 @@ class PPOTrainer:
 
         return final_log_probs
 
+
+    # === 6. 从 buffer 中采样，标准化 reward，重新计算 log_probs，执行 PPO 损失计算与优化更新；包含大量错误检查与 debug 输出 ===
     def update(self, buffer, batch_size=None):
         """
         PPO 更新函数（每次从 buffer 采样数据，执行更新）
@@ -256,7 +303,9 @@ class PPOTrainer:
         print("🧪 Full input len:", input_ids.size(1))
 
         # 重新计算新策略下的 log_probs（现在是整句）
-        new_log_probs = self.compute_log_probs(prompts, generated_codes)
+        # 计算当前策略对已生成代码generated_codes 的 log probability（对数概率），以便用于 PPO 策略更新
+        prompt_lens = [len(self.tokenizer(p, return_tensors='pt').input_ids[0]) for p in prompts]
+        new_log_probs = self.compute_log_probs(prompts, generated_codes, prompt_lens)
 
         # NaN/Inf 检查
         if torch.isnan(new_log_probs).any() or torch.isinf(new_log_probs).any():
@@ -302,10 +351,13 @@ class PPOTrainer:
         ]))
         print(f"🚨 Pre-clip Gradient Norm: {total_norm.item():.4f}")
 
-        # Gradient explosion fix, limit the maximum gradient norm
+        # Gradient clipping: Gradient explosion fix, limit the maximum gradient norm
         torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=self.max_grad_norm)
 
         self.optimizer.step()
+
+        # ✅ 更新完成后 +1
+        self.update_step += 1
 
         print(f"✂️ Applied gradient clipping with max_norm = {self.max_grad_norm}")
 

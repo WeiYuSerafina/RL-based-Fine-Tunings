@@ -144,8 +144,12 @@ with open(output_file, 'w', encoding='utf-8') as out_f:
 
                 item = {
                     "prompt": (
-                        f"Instruction: {question.strip()}\n"
-                        f"Context: {context_formatted.strip()}\n"
+                        f"Instruction:\n"
+                        f"# Problem: {question.strip()}\n"
+                        f"Context:\n"
+                        f"{context_formatted.strip()}\n"
+                        f"###\n"
+                        f"Output:\n"
                     ),
                     "completion": f"{code_formatted.strip()}\n<|endoftext|>"
                 }

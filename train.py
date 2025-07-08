@@ -37,46 +37,50 @@ import json
 # -----------------------------------------------------------------------------
 # default config values designed to train a gpt2 (124M) on OpenWebText
 # I/O
-out_dir = 'out/arcade_run'
-eval_interval = 100 # each 1000 times training for once verification
-log_interval = 10 # each 100 times training for once printing
-eval_iters = 20 # Sample 500 batches per evaluation (but 200 is faster)
+out_dir = 'out/mbpp_baseline_v2'
+eval_interval = 50 # each 50 times training for once verification
+log_interval = 10 # each 10 times training for once printing
+eval_iters = 50 # Sample 50 batches per evaluation (but 200 is faster)
 eval_only = False # if True, script exits right after the first eval
 always_save_checkpoint = True # if True, always save a checkpoint after each eval
 init_from = 'scratch' # 'scratch' or 'resume' or 'gpt2*'
 # wandb logging
 wandb_log = True # disabled by default
-wandb_project = 'nanoGPT-RL_baseline_v2'
+wandb_project = 'nanoGPT-RL_mbpp_baseline_v2'
 wandb_run_name = f'baseline_run_{time.time()}' # 'run' + str(time.time())
 # data
-dataset = 'arcade_new'
+dataset = 'mbpp_new'
 gradient_accumulation_steps = 2 # used to simulate larger batch sizes
 batch_size = 8 # if gradient_accumulation_steps > 1, this is the micro-batch size
 block_size = 256  # token length 128、256, according to your actaul data size: details see count_token_length.py
 # model
-n_layer = 2
-n_head = 2
-n_embd = 128
+n_layer = 4
+n_head = 4
+n_embd = 256
 dropout = 0.1 # for pretraining 0 is good, for finetuning try 0.1+
 bias = True # do we use bias inside LayerNorm and Linear layers?
 # adamw optimizer
-learning_rate = 5e-4 # learning rate
-max_iters = 1000 # total number of training iterations
-weight_decay = 1e-2
+learning_rate = 3e-4 # learning rate
+max_iters = 2000 # total number of training iterations
+weight_decay = 2e-2 # 1e-2
 beta1 = 0.9
 beta2 = 0.95
 grad_clip = 1.0 # clip gradients at this value, or disable if == 0.0
 # learning rate decay settings
 decay_lr = True # whether to decay the learning rate
 warmup_iters = 50 # how many steps to warm up for: it should be max_iters*5~10% =1000*0.05=50
-lr_decay_iters = 1000 # should be ~= max_iters per Chinchilla
-min_lr = 3e-5 # minimum learning rate, should be ~= learning_rate/10 per Chinchilla
+lr_decay_iters = 2000 # should be ~= max_iters per Chinchilla
+min_lr = 1e-5 # minimum learning rate, should be ~= learning_rate/10 per Chinchilla
 # DDP settings
 backend = 'nccl' # 'nccl', 'gloo', etc.
 # system
 device = 'cpu'
-dtype = 'bfloat16' if torch.cuda.is_available() and torch.cuda.is_bf16_supported() else 'float16' # 'float32', 'bfloat16', or 'float16', the latter will auto implement a GradScaler
-compile = True # use PyTorch 2.0 to compile the model to be faster
+dtype = 'float32'
+# dtype = 'bfloat16' if torch.cuda.is_available() and torch.cuda.is_bf16_supported() else 'float16' # 'float32', 'bfloat16', or 'float16', the latter will auto implement a GradScaler
+compile = False # use PyTorch 2.0 to compile the model to be faster
+# Early Stopping
+early_stop_patience = 8  # 连续多少次 val loss 没有提升就停止训练
+early_stop_counter = 0   # 追踪当前已无提升的次数
 # -----------------------------------------------------------------------------
 config_keys = [k for k,v in globals().items() if not k.startswith('_') and isinstance(v, (int, float, bool, str))]
 exec(open('configurator.py').read()) # overrides from command line or config file
@@ -120,34 +124,7 @@ ctx = nullcontext() if device_type == 'cpu' else torch.amp.autocast(device_type=
 data_dir = os.path.join('data', dataset)
 train_data = np.array(np.memmap(os.path.join(data_dir, 'train.bin'), dtype=np.uint16, mode='r'))
 val_data = np.array(np.memmap(os.path.join(data_dir, 'val.bin'), dtype=np.uint16, mode='r'))
-"""
-# 解码前 5 个样本（每段 128 token）
-from transformers import GPT2Tokenizer
 
-# 初始化 tokenizer
-tokenizer = GPT2Tokenizer.from_pretrained("data/arcade_new")
-tokenizer.pad_token = tokenizer.eos_token
-eos_token_id = tokenizer.encode(tokenizer.eos_token)[0]  # 通常就是 50256
-
-# 打印前 5 个完整样本（以 <|endoftext|> 为分隔）
-print("\n📦 Decoding 10 full training samples:")
-count = 0
-start_idx = 0
-
-while count < 10 and start_idx < len(train_data):
-    try:
-        # 找下一个 <|endoftext|> 结束的位置
-        end_idx = (train_data[start_idx:].tolist()).index(eos_token_id) + start_idx
-    except ValueError:
-        break  # 没找到更多 <|endoftext|>
-
-    chunk = train_data[start_idx:end_idx + 1]
-    decoded = tokenizer.decode(chunk)
-
-    print(f"\n📌 Sample {count + 1}:\n{decoded}")
-    count += 1
-    start_idx = end_idx + 1
-"""
 def get_batch(split):
     data = train_data if split == 'train' else val_data
     ix = torch.randint(len(data) - block_size, (batch_size,))
@@ -230,11 +207,7 @@ print(f"Using device: {device}, dtype: {dtype}")
 
 # optimizer
 optimizer = model.configure_optimizers(weight_decay, learning_rate, (beta1, beta2), device_type)
-"""
-if init_from == 'resume':
-    optimizer.load_state_dict(checkpoint['optimizer'])
-checkpoint = None # free up memory
-"""
+
 # Checkpoint Recovery Code
 ckpt_path = os.path.join(out_dir, 'ckpt.pt')
 if os.path.exists(ckpt_path):
@@ -329,8 +302,9 @@ while True:
                 "lr": lr,
                 "mfu": running_mfu*100, # convert to percentage
             })
-        if losses['val'] < best_val_loss or always_save_checkpoint:
+        if losses['val'] < best_val_loss:
             best_val_loss = losses['val']
+            early_stop_counter = 0  # reset
             if iter_num > 0:
                 checkpoint = {
                     'model': raw_model.state_dict(),
@@ -340,10 +314,30 @@ while True:
                     'best_val_loss': best_val_loss,
                     'config': config,
                 }
-                print(f"saving checkpoint to {out_dir}")
+                print(f"New best val loss. Saving checkpoint to {out_dir}")
                 torch.save(checkpoint, os.path.join(out_dir, 'ckpt.pt'))
-    if iter_num == 0 and eval_only:
-        break
+        elif always_save_checkpoint:
+            # Save regular checkpoint, but is not the best
+            if iter_num > 0:
+                checkpoint = {
+                    'model': raw_model.state_dict(),
+                    'optimizer': optimizer.state_dict(),
+                    'model_args': model_args,
+                    'iter_num': iter_num,
+                    'best_val_loss': best_val_loss,
+                    'config': config,
+                }
+                print(f"Saving regular checkpoint (not best) to {out_dir}")
+                torch.save(checkpoint, os.path.join(out_dir, 'ckpt.pt'))
+
+            # Adding an early stop counter
+            early_stop_counter += 1
+            print(f"Val loss did not improve. early_stop_counter = {early_stop_counter}/{early_stop_patience}")
+
+            # If there are no boosts for N consecutive times, stop training
+            if early_stop_counter >= early_stop_patience:
+                print(f"Early stopping: val loss did not improve for {early_stop_patience} evaluations.")
+                break
 
     # forward backward update, with optional gradient accumulation to simulate larger batch size
     # and using the GradScaler if data type is float16
@@ -393,12 +387,11 @@ while True:
 if ddp:
     destroy_process_group()
 
-# === 设置保存目录 ===
+# === Set the save directory ===
 save_path = "./saved_nanoGPT"
 os.makedirs(save_path, exist_ok=True)
 
 # === Save baseline model: baseline_model ===
-# version_id = f"v1"  # 手动设置 version_id = "v3"
 baseline_model_path = os.path.join(save_path, f"model.pt")
 torch.save(model.state_dict(), baseline_model_path)
 print(f"Saved baseline model to: {baseline_model_path}")

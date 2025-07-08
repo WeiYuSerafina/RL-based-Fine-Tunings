@@ -1,95 +1,84 @@
-import torch
+import torch, random, numpy as np
 import torch.optim as optim
+import wandb
 from transformers import AutoTokenizer
 from trajectory_buffer import TrajectoryBuffer
-from ppo_trainer import PPOTrainer
-from reward_function import reward_function
-from dataset_loader import ArcadeDataset
-from nano_gpt_policy import NanoGPTPolicy
+from ppo_trainer      import PPOTrainer
+from reward_function  import reward_function
+from dataset_loader   import MBPPDataset
+from nano_gpt_ppo_policy import NanoGPTPolicy
 
-# === 1. 模型与组件初始化 ===
-tokenizer = AutoTokenizer.from_pretrained("data/arcade_new")
-model = NanoGPTPolicy("saved_nanoGPT")
-# Check if the state_dict key is correct (optional validation)
-state_dict = torch.load("saved_nanoGPT/pytorch_model.bin", map_location="cpu")
-print("Loaded keys from state_dict:", list(state_dict.keys())[:5])
-optimizer = optim.AdamW(model.parameters(), lr=1e-7) # 2e-5 降低到 1e-7
-buffer = TrajectoryBuffer(max_size=500)
-trainer = PPOTrainer(model, tokenizer, optimizer, buffer)
-# Check the model loaded correctly
-print("PPOTrainer initialized.")
-print(f"Number of model parameters: {sum(p.numel() for p in model.parameters())}")
-dataset = ArcadeDataset("arcade-nl2code/arcade_nl2code/annotated_dataset/merged_dataset_new_tasks_cleaned_v2.jsonl")
+# ---------------- 1. 组件初始化 ----------------
+tokenizer = AutoTokenizer.from_pretrained("nanoGPT-RL/data/mbpp_new")
+model     = NanoGPTPolicy("nanoGPT-RL/out/mbpp_baseline_v2")
 
-# === 2. 用当前策略填充 buffer（采样 + 计算 reward + 存入）===
-batch_size = 8
-num_rollouts = 12
+optimizer = optim.AdamW(model.parameters(), lr=1e-5)
+buffer    = TrajectoryBuffer(max_size=1000)
+trainer   = PPOTrainer(model, tokenizer, optimizer, buffer)
+dataset   = MBPPDataset("google-research/mbpp/mbpp_train.jsonl")
 
-for _ in range(num_rollouts):
-    samples = [dataset.sample() for _ in range(batch_size)]
-    prompts = [s[0] for s in samples]
-    ground_truths = [s[1] for s in samples]
+print(f"✅ PPOTrainer init · params={sum(p.numel() for p in model.parameters()):,}")
 
-    # 删除 Top-K, Top-P, do_sample 的参数传递
-    generated_texts, prompts, generated_ids = trainer.rollout(prompts)
+# ---------------- 2. 采样函数 -------------------
+def rollout_to_buffer(rollouts, batch_size):
+    buffer.clear()
+    for _ in range(rollouts):
+        batch     = [dataset.sample() for _ in range(batch_size)]
+        prompts   = [p for p, _ in batch]
+        gts       = [c for _, c in batch]
 
-    # 使用当前策略重新计算 log_probs（整句级别）
-    log_probs = trainer.compute_log_probs(prompts, generated_texts)
-    if torch.isnan(log_probs).any():
-        print("⚠️ Detected NaN in log_probs, skipping this rollout.")
-        continue
+        gen, _, _, lens = trainer.rollout(prompts)
+        lp  = trainer.compute_log_probs(prompts, gen, lens)
+        if torch.isnan(lp).any(): continue
 
-    rewards = [reward_function(gen, gt) for gen, gt in zip(generated_texts, ground_truths)]
+        rewards = [reward_function(g, gt) for g, gt in zip(gen, gts)]
+        if not all(np.isfinite(r) for r in rewards): continue
 
-    if any((not isinstance(r, float)) or torch.isnan(torch.tensor(r)) or torch.isinf(torch.tensor(r)) for r in rewards):
-        print("⚠️ Invalid reward detected, skipping this rollout.")
-        continue
+        for pr, g, r, l in zip(prompts, gen, rewards, lp.tolist()):
+            buffer.add(pr, g, float(r), float(l))
 
-    for prompt, gen, reward, log_prob in zip(prompts, generated_texts, rewards, log_probs.tolist()):
-        buffer.add(prompt, gen, reward, log_prob)
+# ---------------- 3. PPO 训练函数 ---------------
+def train_ppo(cfg):
+    random.seed(cfg.seed); np.random.seed(cfg.seed); torch.manual_seed(cfg.seed)
 
-print(f"✅ Buffer 填充完成，当前存储数量：{len(buffer)}")
-
-# === 3. PPO 训练主循环（更新策略、评估、Early Stop）===
-def train_ppo(config):
-    # 使用 getattr 获取字段，带默认值（更安全）
-    patience = getattr(config, "early_stop_patience", 10)
-    eval_interval = getattr(config, "eval_interval", 100)
-    best_avg_reward = float("-inf")
-    no_improve_count = 0
-
+    best_reward, no_improve = -1e9, 0
     for epoch in range(1000):
-        print(f"🔁 Epoch {epoch + 1}")
-        loss = trainer.update(buffer, batch_size=8)
-        if loss is None or torch.isnan(torch.tensor(loss)):
-            print(f"⚠️ Epoch {epoch + 1} skipped due to NaN loss.")
-            continue
+        rollout_to_buffer(rollouts=12, batch_size=cfg.batch_size)
 
-        # === 4. 定期评估 PPO 策略 ===
-        if (epoch + 1) % eval_interval == 0:
+        if len(buffer) >= cfg.batch_size:
+            loss = trainer.update(buffer, batch_size=cfg.batch_size)
+            buffer.clear()
+            if loss is None or torch.isnan(torch.tensor(loss)): continue
+
+        if (epoch + 1) % cfg.eval_interval == 0:
             eval_prompts = [dataset.sample()[0] for _ in range(16)]
-            generated_texts, _ = trainer.rollout(eval_prompts)  # ✅ 已移除 Top-* 策略
-            ground_truths = [dataset.lookup_ground_truth(p) for p in eval_prompts]
-            rewards = [reward_function(gen, gt) for gen, gt in zip(generated_texts, ground_truths)]
-            avg_reward = sum(rewards) / len(rewards)
+            gen_eval, _  = trainer.rollout(eval_prompts)
+            gt_eval      = [dataset.lookup_ground_truth(p) for p in eval_prompts]
+            rewards_eval = [reward_function(g, gt) for g, gt in zip(gen_eval, gt_eval)]
+            avg_reward   = float(np.mean(rewards_eval))
 
-            print(f"📊 Evaluation @ step {epoch + 1}: avg_reward = {avg_reward:.4f}")
+            print(f"[{epoch+1}] avg_reward={avg_reward:.4f}")
+            wandb.log({"epoch": epoch+1, "avg_reward": avg_reward, "loss": loss or 0.0})
 
-            # === 5. 判断是否保存最优模型 ===
-            if avg_reward > best_avg_reward:
-                best_avg_reward = avg_reward
-                no_improve_count = 0
-                print("🔼 Reward improved, saving model...")
-
-                save_path = f"saved_nanoGPT_finetuned/PPO_best_step_{epoch + 1}"
-                model.save_pretrained(save_path)
-                tokenizer.save_pretrained(save_path)
-                print(f"💾 Model checkpoint saved to: {save_path}")
+            if avg_reward > best_reward:
+                best_reward, no_improve = avg_reward, 0
+                save_dir = f"saved_nanoGPT_finetuned/PPO_best_step_{epoch+1}"
+                model.save_pretrained(save_dir); tokenizer.save_pretrained(save_dir)
+                print(f"💾 Improved, saved to {save_dir}")
             else:
-                no_improve_count += 1
-                print(f"⚠️ No improvement for {no_improve_count} evals.")
+                no_improve += 1
+                print(f"⚠️ No improvement for {no_improve} evals")
 
-            # === 6. Early Stopping 判断 ===
-            if no_improve_count >= patience:
-                print(f"🛑 Early stopping triggered after {epoch + 1} steps.")
-                break
+            if no_improve >= cfg.early_stop_patience:
+                print("🛑 Early stopping"); break
+
+# ---------------- 4. 入口 ----------------------
+if __name__ == "__main__":
+    # 若 run.py 已先 wandb.init()，以下判断会跳过
+    if not wandb.run:
+        wandb.init(project="nanoGPT-RL-PPO",
+                   config=dict(lr=1e-5, batch_size=8, max_new_tokens=100,
+                               early_stop_patience=500, eval_interval=100,
+                               ppo_epochs=4, log_interval=10, seed=42))
+    cfg = wandb.config
+    train_ppo(cfg)
