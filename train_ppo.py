@@ -39,7 +39,6 @@ def rollout_to_buffer(rollouts, batch_size):
 
 # ---------------- 3. PPO 训练函数 ---------------
 def train_ppo(cfg):
-    random.seed(cfg.seed); np.random.seed(cfg.seed); torch.manual_seed(cfg.seed)
 
     best_reward, no_improve = -1e9, 0
     for epoch in range(1000):
@@ -79,6 +78,6 @@ if __name__ == "__main__":
         wandb.init(project="nanoGPT-RL-PPO",
                    config=dict(lr=1e-5, batch_size=8, max_new_tokens=100,
                                early_stop_patience=500, eval_interval=100,
-                               ppo_epochs=4, log_interval=10, seed=42))
+                               ppo_epochs=4, log_interval=10))
     cfg = wandb.config
     train_ppo(cfg)

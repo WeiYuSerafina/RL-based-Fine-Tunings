@@ -3,7 +3,6 @@ import json
 import time
 import random
 import argparse
-from types import SimpleNamespace
 
 import torch
 import numpy as np
@@ -14,6 +13,21 @@ from ppo_trainer import PPOTrainer
 from trajectory_buffer import TrajectoryBuffer
 from reward_function import reward_function
 from dataset_loader import MBPPDataset
+from ppo_trainer import PPOTrainer
+
+# run_ppo.py
+from evaluate_ppo_a2c_perplexity import evaluate_perplexity,load_prompt_completion_pairs
+import csv, os
+
+def log_ppl_to_csv(step: int, ppl: float, csv_path: str):
+    os.makedirs(os.path.dirname(csv_path), exist_ok=True)
+    write_header = not os.path.exists(csv_path)
+    with open(csv_path, "a", newline="") as f:
+        w = csv.writer(f)
+        if write_header:
+            w.writerow(["step", "ppl"])
+        w.writerow([step, ppl])
+
 
 
 # === Sweep config ===
@@ -32,14 +46,6 @@ sweep_config = {
     }
 }
 
-# === utils ===
-def set_seed(seed: int = 42):
-    random.seed(seed)
-    np.random.seed(seed)
-    torch.manual_seed(seed)
-    if torch.cuda.is_available():
-        torch.cuda.manual_seed_all(seed)
-
 # === main training loop ===
 from types import SimpleNamespace
 
@@ -47,7 +53,7 @@ def train_loop(cfg: SimpleNamespace):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     # --- load model & tokenizer ---
-    model_name = "./out/mbpp_baseline_v2"
+    model_name = "./out/mbpp_baseline_v3"
     tokenizer_path = "./data/mbpp_new"
 
     model = NanoGPTPolicy(model_name, tokenizer_path=tokenizer_path)
@@ -102,16 +108,45 @@ def train_loop(cfg: SimpleNamespace):
 
         # --- logging ---
         if step % cfg.log_interval == 0:
-            wandb.log({
-                "step": step,
+            wandb.log(
+                {
+                "steo": step,
                 "reward": reward,
                 "moving_avg_reward": avg_recent_reward,
-                "lr": optimizer.param_groups[0]['lr']
-            })
+                "lr": optimizer.param_groups[0]['lr'],
+                **getattr(ppo, "last_stats", {}),# ← 把 PPOTrainer.update() 中保存的 loss/kl 等一并展开
+                },
+                step=step, # ← 用 step 参数做全局步数
+            )
 
         # --- evaluation print ---
         if step % cfg.eval_interval == 0:
             print(f"[Step {step}] AvgReward={avg_recent_reward:.4f} | Reward={reward:.4f}")
+
+        # === Evaluate PPL + write to CSV ===
+        try:
+            # 1. 把验证集转换为 (prompt, full_text) 对
+            eval_pairs = load_prompt_completion_pairs(
+                path='google-research/mbpp/sanitized-mbpp.json',
+                max_samples=50
+            )
+
+            # 2. 直接调用 evaluate_perplexity(model, ...)  ← 来自 evaluate_ppo_a2c_perplexity.py
+            ppl_val = evaluate_perplexity(
+                model=model,
+                tokenizer=tokenizer,
+                prompt_full_pairs=eval_pairs,
+                batch_size=8,
+                max_length=256,
+            )
+
+            # 3. 记录到 CSV 与 wandb
+            log_ppl_to_csv(step, ppl_val, "./logs/ppl_ppo.csv")
+            wandb.log({"ppl": ppl_val}, step=step)
+            print(f"[Step {step}] PPL(PPO) = {ppl_val:.2f}")
+
+        except Exception as e:
+            print(f"[Warning] Failed to evaluate PPL at step {step}: {e}")
 
         # --- early stopping ---
         if avg_recent_reward > best_avg_reward:
@@ -150,13 +185,11 @@ def main():
             "early_stop_patience": 500,
             "eval_interval": 100,
             "ppo_epochs": 4,
-            "total_steps": 3000,
+            "total_steps": 2000,
             "log_interval": 10,
-            "seed": 42
         }
     )
     cfg = SimpleNamespace(**wandb.config)
-    set_seed(cfg.seed)
     train_loop(cfg)
 
 if __name__ == "__main__":

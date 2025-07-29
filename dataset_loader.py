@@ -24,3 +24,5 @@ class MBPPDataset:
     def lookup_ground_truth(self, prompt):
         # 给定 prompt，返回对应的 completion，如果找不到就返回空字符串
         return self.prompt2completion.get(prompt, '')
+
+

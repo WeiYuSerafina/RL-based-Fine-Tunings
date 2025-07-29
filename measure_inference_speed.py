@@ -4,25 +4,46 @@ import torch
 from model import GPT, GPTConfig  # 确保和你的项目结构一致
 
 # === 设置参数 ===
-model_path = "./out/mbpp_baseline_v2"  # 如果 ckpt.pt 在当前目录
-checkpoint_file = os.path.join(model_path, "ckpt.pt")
+model_path = "./saved_nanoGPT_finetuned/PPO_best_step_160"  # 模型目录
+checkpoint_file = os.path.join(model_path, "ckpt.pt")       # 优先加载ckpt.pt
+hf_checkpoint_file = os.path.join(model_path, "pytorch_model.bin")
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-max_new_tokens = 100  # 控制生成长度，可自由调整
+max_new_tokens = 100  # 控制生成长度
 
 # === 加载 checkpoint 和模型 ===
 print("Loading model checkpoint...")
-ckpt = torch.load(checkpoint_file, map_location=device)
+if os.path.exists(checkpoint_file):
+    # === 兼容自定义 ckpt.pt ===
+    ckpt = torch.load(checkpoint_file, map_location=device)
+    model_args = ckpt['model_args']         # 包含 n_layer, n_head, n_embd 等结构参数
+    state_dict = ckpt['model']              # 模型权重
+    config = GPTConfig(**model_args)
+    model = GPT(config)
+    model.load_state_dict(state_dict)
 
-model_args = ckpt['model_args']         # 包含 n_layer, n_head, n_embd 等结构参数
-state_dict = ckpt['model']              # 仅模型权重
-config = GPTConfig(**model_args)
-model = GPT(config)
-model.load_state_dict(state_dict)
+elif os.path.exists(hf_checkpoint_file):
+    # === 兼容 Hugging Face 风格 pytorch_model.bin ===
+    state_dict = torch.load(hf_checkpoint_file, map_location=device)
+    # 你需要提供 config.json 或自己定义参数
+    # 这里假设你已有 config.json 或直接硬编码
+    model_args = {
+        "vocab_size": 50257,
+        "block_size": 256,
+        "n_layer": 4,
+        "n_head": 4,
+        "n_embd": 256
+    }
+    config = GPTConfig(**model_args)
+    model = GPT(config)
+    model.load_state_dict(state_dict)
+
+else:
+    raise FileNotFoundError("No ckpt.pt or pytorch_model.bin found in model_path!")
+
 model.to(device)
 model.eval()
 
 # === 构造输入 ===
-# 示例 prompt：[1, 2, 3, 4] 仅供测试，可替换为真实 prompt
 input_ids = torch.tensor([[1, 2, 3, 4]], dtype=torch.long).to(device)
 
 # === 计时并推理 ===

@@ -190,7 +190,7 @@ class GPT(nn.Module):
         logits = self.lm_head(x)  # output logits for all positions (b, t, vocab_size)
 
         if targets is not None:
-            loss = F.cross_entropy(logits.view(-1, logits.size(-1)), targets.view(-1), ignore_index=-1)
+            loss = F.cross_entropy(logits.view(-1, logits.size(-1)), targets.view(-1), ignore_index=-100)
             if return_hidden_states:
                 return logits, loss, hidden_states
             else:

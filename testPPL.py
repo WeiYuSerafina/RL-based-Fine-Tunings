@@ -10,8 +10,8 @@ from model import GPT, GPTConfig  # baseline nanoGPT 模型
 block_size = 256
 stride = 128
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-model_path = "./out/mbpp_baseline_v3/" # "./out/mbpp_baseline_v3/"
-tokenizer_path = "data/mbpp_new" # data/mbpp_new
+model_path = "./saved_nanoGPT_finetuned/A2C_best_step_1400/" # "./out/mbpp_baseline_v3/"
+tokenizer_path = "saved_nanoGPT_finetuned/A2C_best_step_1400" # data/mbpp_new
 json_path = "/Users/serafinayu/PycharmProjects/nanoGPT-RL/google-research/mbpp/sanitized-mbpp.json" #sanitized-mbpp.json
 
 # === 加载 tokenizer ===
@@ -27,23 +27,37 @@ config = GPTConfig(
 )
 model = GPT(config).to(device)
 
-# 自动选择 checkpoint
-if os.path.isdir(model_path):
+# 先尝试 HuggingFace 保存格式
+hf_bin = os.path.join(model_path, "pytorch_model.bin")
+if os.path.isfile(hf_bin):
+    print(f"Loading HuggingFace-style weights from {hf_bin}...")
+    state_dict = torch.load(hf_bin, map_location=device)
+else:  # 退回旧的 ckpt 逻辑
     ckpt_file = os.path.join(model_path, "ckpt_step900.pt")
     if not os.path.isfile(ckpt_file):
         ckpt_file = os.path.join(model_path, "ckpt.pt")
-else:
-    ckpt_file = model_path
-
-print(f"Loading baseline checkpoint from {ckpt_file}...")
-ckpt = torch.load(ckpt_file, map_location=device)
-# 支持不同存储格式
-state_dict = ckpt.get('model') or ckpt.get('model_state_dict') or ckpt
-# 清洗前缀
-state_dict = {k.replace('_orig_mod.', ''): v for k, v in state_dict.items()}
+    print(f"Loading baseline checkpoint from {ckpt_file}...")
+    ckpt = torch.load(ckpt_file, map_location=device)
+    state_dict = ckpt.get("model") or ckpt.get("model_state_dict") or ckpt
+"""
+# 去掉可能的 _orig_mod. 前缀
+state_dict = {k.replace("_orig_mod.", ""): v for k, v in state_dict.items()}
 model.load_state_dict(state_dict)
 model.eval()
-print(f"✅ Loaded baseline model, params: {sum(p.numel() for p in model.parameters())/1e6:.2f}M")
+print(f"✅ Loaded model, params: {sum(p.numel() for p in model.parameters())/1e6:.2f}M")
+"""
+# 清洗键名
+clean_sd = {}
+for k, v in state_dict.items():
+    k = k.removeprefix("model.")        # Python 3.9 没有 removeprefix 就用切片
+    k = k.replace("_orig_mod.", "")
+    if k.startswith("value_head"):
+        continue
+    clean_sd[k] = v
+
+missing, unexpected = model.load_state_dict(clean_sd, strict=False)
+print(f"✅ Loaded model · missing: {len(missing)} · ignored extra: {len(unexpected)}")
+print(f"参数量: {sum(p.numel() for p in model.parameters())/1e6:.2f} M")
 
 # === 读取数据并构建 token 序列 ===
 input_ids_all = []

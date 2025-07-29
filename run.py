@@ -7,7 +7,7 @@ from nano_gpt_ppo_policy import NanoGPTPolicy
 from ppo_trainer import PPOTrainer
 from trajectory_buffer import TrajectoryBuffer
 from reward_function import reward_function
-from dataset_loader import ArcadeDataset
+from dataset_loader import MBPPDataset
 from train_ppo import train_ppo
 
 
@@ -51,7 +51,7 @@ def main():
     ppo = PPOTrainer(model, tokenizer, optimizer, buffer)
 
     dataset_path = 'arcade-nl2code/arcade_nl2code/annotated_dataset/merged_dataset_for_ppo_a2c.jsonl'
-    dataset = ArcadeDataset(dataset_path)
+    dataset = MBPPDataset(dataset_path)
 
     best_model_state = None
     best_step = -1

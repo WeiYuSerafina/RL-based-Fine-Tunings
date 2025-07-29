@@ -1,5 +1,5 @@
 import difflib
-import timeit
+import numpy as np
 import re
 
 def reward_function(generated_code, reference_code, prompt=None):
@@ -106,12 +106,30 @@ def reward_function(generated_code, reference_code, prompt=None):
         shaping_bonus  # 鼓励非空
     )
 
-    # ✅ 加 reward 下限防崩溃（例如为零会导致 log_prob 无穷大）
-    if total_reward < 1e-5:
-        total_reward = 0.01
+    # === ⭐ running mean/std 归一化 =========================
+    EPS = 1e-8
+    global running_mean, running_M2, running_count
+    if 'running_mean' not in globals():
+        running_mean, running_M2, running_count = 0.0, 0.0, 0  # 首次初始化
 
-    # ✅ 防御性检查：确保 reward 是合法 float 值
-    if total_reward != total_reward or total_reward == float("inf") or total_reward == float("-inf"):
+    running_count += 1
+    delta = total_reward - running_mean
+    running_mean += delta / running_count
+    running_M2 += delta * (total_reward - running_mean)
+    reward_std = ((running_M2 / max(running_count, 1)) ** 0.5) + EPS
+    total_reward = (total_reward - running_mean) / reward_std
+    # =====================================================
+
+    # === 🔧 NEW: tanh 压缩到 (0,1) + floor = 0.01 =========
+    total_reward = (np.tanh(total_reward) + 1) / 2  # (-1,1)→(0,1)
+    total_reward = max(total_reward, 0.01)  # 固定下限 0.01
+    # =====================================================
+    # ⭐⭐ 放大奖励信号（可调 2~5）
+    # total_reward *= 5.0  # <—— 新增这一行
+    # -------------------------------------------------------
+    # 🔧 UPDATE: clip 现在只需防超上限；不会再出现负值
+    total_reward = float(np.clip(total_reward, 0.01, 1.0))
+    if np.isnan(total_reward) or np.isinf(total_reward):
         return 0.0
 
-    return round(max(0.0, total_reward), 4)
+    return round(total_reward, 4)

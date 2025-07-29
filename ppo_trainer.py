@@ -29,7 +29,7 @@ class PPOTrainer:
         if not hasattr(self.model, "config") and hasattr(self.model, "model"):
             self.model.config = self.model.model.config
 
-    # === 2. Model sanity check: ensure that the logits under dummy input have no NaN and the mean is normal ===
+        # === 2. Model sanity check: ensure that the logits under dummy input have no NaN and the mean is normal ===
     def _check_logits_sanity(self):
         self.model.eval()
         with torch.no_grad():
@@ -109,10 +109,6 @@ class PPOTrainer:
         # 4. PPO核心损失计算（用 Advantage 替代 reward）
         ppo_core_loss = -torch.min(ratio * advantages, clipped_ratio * advantages).mean()
 
-        # 5. KL 惩罚项(option)
-        # kl_div = torch.mean(old_log_probs - new_log_probs)
-        # kl_penalty = 0.05 * kl_div  # 你可以根据训练稳定性调低
-
         #5. KL 惩罚项（使用动态系数）
         # 可选：传入 step 或 epoch 参数
         step = getattr(self, "update_step", 0)  # 若未设定 step，默认为 0
@@ -139,6 +135,9 @@ class PPOTrainer:
         # 8. loss 为负值（理论上不应该）的特殊处理（可选）
         if loss.item() < 0:
             print(f"⚠️ Warning: PPO loss is negative ({loss.item():.4f}), check reward or log_prob stability.")
+
+        self._last_policy_loss = ppo_core_loss.detach()
+        self._last_kl_penalty = kl_penalty.detach()
 
         return loss
 
@@ -362,3 +361,13 @@ class PPOTrainer:
         print(f"✂️ Applied gradient clipping with max_norm = {self.max_grad_norm}")
 
         print(f"✅ PPO Update Done! Loss = {loss.item():.4f}")
+
+        self.last_stats = {
+            "total_loss": loss.item(),
+            "policy_loss": self._last_policy_loss.item(),
+            "kl_penalty": self._last_kl_penalty.item(),
+        }
+
+
+
+
