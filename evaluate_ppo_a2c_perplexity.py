@@ -146,7 +146,7 @@ if __name__ == "__main__":
 
     """
 python evaluate_ppo_a2c_perplexity.py \
-  --model_path saved_nanoGPT_finetuned/PPO_best_step_2 \
+  --model_path saved_nanoGPT_finetuned/PPO_best_step_160 \
   --jsonl_path google-research/mbpp/sanitized-mbpp.json \
   --max_samples 500
 
