@@ -6,7 +6,7 @@ from tqdm import tqdm
 from transformers import GPT2TokenizerFast
 from model import GPT, GPTConfig  # baseline nanoGPT 模型
 
-# === 配置 ===
+# Configuration
 block_size = 256
 stride = 128
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -14,10 +14,10 @@ model_path = "./out/mbpp_baseline_v3/" # "./out/mbpp_baseline_v3/"
 tokenizer_path = "data/mbpp_new" # data/mbpp_new
 json_path = "/Users/serafinayu/PycharmProjects/nanoGPT-RL/google-research/mbpp/sanitized-mbpp.json" #sanitized-mbpp.json
 
-# === 加载 tokenizer ===
+# Load the tokenizer
 tokenizer = GPT2TokenizerFast.from_pretrained(tokenizer_path)
 
-# === 初始化并加载 Baseline 模型 ===
+# Initialize and load the Baseline model
 config = GPTConfig(
     vocab_size=tokenizer.vocab_size,
     block_size=block_size,
@@ -27,7 +27,7 @@ config = GPTConfig(
 )
 model = GPT(config).to(device)
 
-# 自动选择 checkpoint
+# Automatically select checkpoints
 if os.path.isdir(model_path):
     ckpt_file = os.path.join(model_path, "ckpt_step900.pt")
     if not os.path.isfile(ckpt_file):
@@ -37,15 +37,17 @@ else:
 
 print(f"Loading baseline checkpoint from {ckpt_file}...")
 ckpt = torch.load(ckpt_file, map_location=device)
-# 支持不同存储格式
+
+# Support different storage formats
 state_dict = ckpt.get('model') or ckpt.get('model_state_dict') or ckpt
-# 清洗前缀
+
+# Clean prefix
 state_dict = {k.replace('_orig_mod.', ''): v for k, v in state_dict.items()}
 model.load_state_dict(state_dict)
 model.eval()
 print(f"✅ Loaded baseline model, params: {sum(p.numel() for p in model.parameters())/1e6:.2f}M")
 
-# === 读取数据并构建 token 序列 ===
+# Read data and build token sequence
 input_ids_all = []
 label_ids_all = []
 with open(json_path, 'r', encoding='utf-8') as f:
@@ -66,13 +68,13 @@ for obj in records:
     input_ids_all.append(ids)
     label_ids_all.append(labels)
 
-# 合并
+# Merge
 input_ids_cat = torch.cat(input_ids_all)
 labels_cat = torch.cat(label_ids_all)
 seq_len = input_ids_cat.size(0)
 print(f"Total tokens: {seq_len}")
 
-# === 计算 PPL ===
+# Calculate PPL
 nll_sum = 0.0
 n_tokens = 0
 prev_end = 0

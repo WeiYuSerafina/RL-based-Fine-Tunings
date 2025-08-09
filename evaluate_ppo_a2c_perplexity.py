@@ -1,28 +1,27 @@
 import torch
 import json
-from nano_gpt_ppo_policy import NanoGPTPolicy  # 自定义模型类
+from nano_gpt_ppo_policy import NanoGPTPolicy
 from nano_gpt_a2c_policy import NanoGPTA2CPolicy
 
 import json, os
 
 
 def load_prompt_completion_pairs(path: str, max_samples: int = 1000):
-    # 1. 读文件（jsonl 或 json）
+    # 1. Reading files (jsonl or json)
     if path.endswith(".jsonl"):
         with open(path, "r", encoding="utf-8") as f:
-            # 直接构成列表，后面可 len()、slice()
             records = [json.loads(line) for line in f]
     else:  # .json
         with open(path, "r", encoding="utf-8") as f:
             records = json.load(f)  # list[dict]
 
-    # 2. 提取 prompt + completion/code
+    # 2. Extract prompt + completion/code
     pairs = []
     for obj in records:
         prompt = obj.get("prompt", "").strip()
-        # MBPP train/valid 用 "completion"，sanitized 用 "code"
-        completion = (obj.get("completion")  # 优先取 completion
-                      or obj.get("code", "")).strip()  # 否则取 code
+        # MBPP train/valid uses "completion"，sanitized uses "code"
+        completion = (obj.get("completion")  # Prioritize completion
+                      or obj.get("code", "")).strip()  # Otherwise code
 
         if prompt and completion:
             pairs.append((prompt, f"{prompt} {completion}"))
@@ -51,22 +50,22 @@ def evaluate_perplexity(model, tokenizer, prompt_full_pairs, batch_size=8, max_l
             for i, (prompt, full) in enumerate(batch_pairs):
                 prompt_ids = tokenizer(prompt, add_special_tokens=False).input_ids
                 prompt_len = len(prompt_ids)
-                prompt_len = min(prompt_len, input_ids.size(1))  # 防止越界
-                labels[i, :prompt_len] = -100  # 屏蔽 prompt 区域
+                prompt_len = min(prompt_len, input_ids.size(1))
+                labels[i, :prompt_len] = -100  # Shield the prompt area
 
                 valid_token_count = (labels[i] != -100).sum().item()
                 if valid_token_count < 5:
                     print(
                         f"⚠️ Skipping sample {i + start_idx} with only {valid_token_count} valid tokens (prompt too long?)")
-                    labels[i] = -100  # 忽略整条
+                    labels[i] = -100
 
                 full_len = attention_mask[i].sum().item()
                 print(f"[Check] Prompt len: {prompt_len}, Full len: {full_len}")
 
             # original:logits, loss = model(input_ids=input_ids, attention_mask=attention_mask, labels=labels)
-            # 更健壮地解析 logits 和 loss
+            # More robust parsing of logits and loss
             output = model(input_ids=input_ids, attention_mask=attention_mask, labels=labels)
-            # A2C 返回 dict，PPO 返回 tuple
+            # A2C returns a dict, PPO returns a tuple
             if isinstance(output, dict):
                 logits = output["logits"]
                 loss = output["loss"]
@@ -79,7 +78,7 @@ def evaluate_perplexity(model, tokenizer, prompt_full_pairs, batch_size=8, max_l
             total_loss += loss.item() * valid_tokens
             total_tokens += valid_tokens
 
-            # 插入：打印高损失样本
+            # Insert: Print high loss samples
             per_token_loss = torch.nn.functional.cross_entropy(
                 logits.view(-1, logits.size(-1)),
                 labels.view(-1),
@@ -89,7 +88,7 @@ def evaluate_perplexity(model, tokenizer, prompt_full_pairs, batch_size=8, max_l
 
             for i in range(len(batch_pairs)):
                 loss_i = per_token_loss[i][labels[i] != -100].mean().item()
-                if loss_i > 1:  # 可根据情况调整阈值
+                if loss_i > 1:  # The threshold can be adjusted according to the situation
                     prompt, full = batch_pairs[i]
                     completion = full[len(prompt):].strip()
                     print(f"\n🚨 High-loss Sample {i + start_idx}:")
@@ -116,7 +115,6 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     # 1. Load model and tokenizer
-    # 1. 确定 base_dir：如果是文件就取父目录，否则直接就是目录
     if os.path.isfile(args.model_path) and args.model_path.endswith(".pt"):
         base_dir = os.path.dirname(args.model_path)
         ckpt_path = args.model_path
@@ -124,14 +122,14 @@ if __name__ == "__main__":
         base_dir = args.model_path
         ckpt_path = None
 
-    # 2. 用 base_dir 同时加载模型结构和 tokenizer
+    # 2. Use base_dir to load both the model structure and the tokenizer
     if "A2C" in base_dir:
         model = NanoGPTA2CPolicy(base_dir, tokenizer_path=base_dir)
     else:
         model = NanoGPTPolicy(base_dir, tokenizer_path=base_dir)
     tokenizer = model.tokenizer
 
-    # 3. 如果传入的是 ckpt 文件，就把它的 state_dict load 进 model
+    # 3. If the ckpt file is passed in, load its state_dict into the model
     if ckpt_path is not None:
         state = torch.load(ckpt_path, map_location="cpu")
         model.model.load_state_dict(state)
@@ -155,7 +153,7 @@ python evaluate_ppo_a2c_perplexity.py \
   --jsonl_path google-research/mbpp/sanitized-mbpp.json \
   --max_samples 500  
 
-前提是所有来data/mbpp_new的tokenizer都要放在mbpp_baseline_v3里
+The premise is that all tokenizers from data/mbpp_new must be placed in mbpp_baseline_v3
 python evaluate_ppo_a2c_perplexity.py \
   --model_path ./out/mbpp_baseline_v3/ \
   --jsonl_path google-research/mbpp/sanitized-mbpp.json \

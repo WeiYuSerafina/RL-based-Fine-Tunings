@@ -94,9 +94,9 @@ dtype = 'float32'
 # dtype = 'bfloat16' if torch.cuda.is_available() and torch.cuda.is_bf16_supported() else 'float16' # 'float32', 'bfloat16', or 'float16', the latter will auto implement a GradScaler
 compile = False # use PyTorch 2.0 to compile the model to be faster
 # Early Stopping
-early_stop_patience = 100  # 连续多少次 val loss 没有提升就停止训练
-early_stop_counter = 0   # 追踪当前已无提升的次数
-# 表示在做 PPL 评估时，对每条输入文本 最多保留 256 个 token，多出来的会被截断（truncation=True)
+early_stop_patience = 100
+early_stop_counter = 0
+# Indicates that when doing PPL evaluation, a maximum of 256 tokens will be retained for each input text, and any excess tokens will be truncated (truncation=True)
 max_length   = 256
 # -----------------------------------------------------------------------------
 config_keys = [k for k,v in globals().items() if not k.startswith('_') and isinstance(v, (int, float, bool, str))]
@@ -326,7 +326,9 @@ while True:
                 "val/loss": losses['val'],
                 "lr": lr,
                 "mfu": running_mfu*100, # convert to percentage
-            })
+            },
+                step=iter_num,
+        )
 
         ppl_val = evaluate_baseline_perplexity(
             model=model,
@@ -442,27 +444,27 @@ while True:
 if ddp:
     destroy_process_group()
 
-# === Set the save directory ===
+# Set the save directory
 save_path = "./saved_nanoGPT"
 os.makedirs(save_path, exist_ok=True)
 
-# === Save baseline model: baseline_model ===
+# Save baseline model: baseline_model
 baseline_model_path = os.path.join(save_path, f"model.pt")
 torch.save(model.state_dict(), baseline_model_path)
 print(f"Saved baseline model to: {baseline_model_path}")
 
-# === Save HuggingFace-style model: pytorch_model ===
+# Save HuggingFace-style model: pytorch_model
 pytorch_model_path = os.path.join(save_path, f"pytorch_model.bin")
 torch.save(model.state_dict(), pytorch_model_path)
 print(f"Saved HuggingFace-style model to: {pytorch_model_path}")
 
-# === Save model configuration: config_path ===
+# Save model configuration: config_path
 config_path = os.path.join(save_path, f"config.json")
 with open(config_path, "w") as f:
     json.dump(model.config.__dict__, f, indent=4)
 print(f"Saved config.json to: {config_path}")
 
-# === debug bias ===
+# Debug bias
 has_bias = any("bias" in k for k in model.state_dict().keys())
 print("Whether the bias parameter exists:", has_bias)
 

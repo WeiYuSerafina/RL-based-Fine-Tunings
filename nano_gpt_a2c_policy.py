@@ -16,8 +16,8 @@ class NanoGPTA2CPolicy(nn.Module):
         model_dir: str,
         tokenizer_path: Optional[str] = None,
         batch_size: int = 4,
-        force_block_size: Optional[int] = None,  # ★ FIX: 可选覆盖 block_size（原代码写死 256）
-        debug: bool = False,                     # ★ FIX: debug flag
+        force_block_size: Optional[int] = None,
+        debug: bool = False,
     ):
         super().__init__()
         self.batch_size = batch_size
@@ -25,16 +25,14 @@ class NanoGPTA2CPolicy(nn.Module):
 
         print("✅ Initialized A2C model (NanoGPTA2CPolicy)")
 
-        # --------------------------------------------------
         # 1. Load config.json / meta.pkl / fallback
-        # --------------------------------------------------
         config_path = os.path.join(model_dir, "config.json")
         if os.path.exists(config_path):
             with open(config_path, "r") as f:
                 cfg_dict = json.load(f)
         else:
-            # ---------- 1.1 如果没有，则尝试 meta.pkl ----------
-            meta_dir = tokenizer_path or model_dir  # ← 关键行（原注释保留）
+            # 1.1 If not, try meta.pkl
+            meta_dir = tokenizer_path or model_dir
             meta_path = os.path.join(meta_dir, "meta.pkl")
             if os.path.exists(meta_path):
                 with open(meta_path, "rb") as f:
@@ -55,7 +53,7 @@ class NanoGPTA2CPolicy(nn.Module):
                 print(
                     f"⚠️  meta.pkl also missing at {meta_path} → fallback to tokenizer defaults"
                 )
-                # ----- 加载 tokenizer （此时 tok_dir 已可用） -----
+                # Load the tokenizer (tok_dir is now available)
                 tok_dir = tokenizer_path if tokenizer_path is not None else "./data/mbpp_new"
                 self.tokenizer = GPT2TokenizerFast.from_pretrained(
                     tok_dir, local_files_only=True
@@ -63,7 +61,7 @@ class NanoGPTA2CPolicy(nn.Module):
                 if self.tokenizer.pad_token is None:
                     self.tokenizer.pad_token = self.tokenizer.eos_token
                 print(f"✅ Tokenizer loaded from {tok_dir}")
-                # ----- 用 tokenizer.vocab_size 构造缺省 GPTConfig -----
+                # Constructing a default GPTConfig with tokenizer.vocab_size
                 cfg_dict = dict(
                     vocab_size=self.tokenizer.vocab_size,
                     block_size=256,
@@ -76,10 +74,7 @@ class NanoGPTA2CPolicy(nn.Module):
 
         gpt_cfg = GPTConfig(**cfg_dict)
 
-        # --------------------------------------------------
-        # 2. block_size 处理
-        #    原代码直接写死为 256；现在仅在用户显式传入时修改。
-        # --------------------------------------------------
+        # 2. block_size handling
         if force_block_size is not None:
             if self.debug and force_block_size != gpt_cfg.block_size:
                 print(
@@ -87,16 +82,11 @@ class NanoGPTA2CPolicy(nn.Module):
                 )
             gpt_cfg.block_size = force_block_size
 
-        # --------------------------------------------------
-        # 3. 初始化 GPT 模型
-        # --------------------------------------------------
+        # 3. Initialize the GPT model
         self.model = GPT(gpt_cfg)
         n_embd = gpt_cfg.n_embd
 
-        # --------------------------------------------------
-        # 4. 若 block_size 与模型默认不符，安全扩展位置嵌入
-        #    原代码无条件重建 wpe；这里保留已有权重并拷贝。
-        # --------------------------------------------------
+        # 4. If block_size does not match the model default, safe extension position embedding
         if hasattr(self.model.transformer, "wpe"):
             old_wpe = self.model.transformer.wpe
             if old_wpe.num_embeddings != gpt_cfg.block_size:
@@ -107,12 +97,10 @@ class NanoGPTA2CPolicy(nn.Module):
                 self.model.transformer.wpe = new_wpe
                 if self.debug:
                     print(
-                        f"🔧 Resized pos-emb: {old_wpe.num_embeddings} -> {gpt_cfg.block_size}"
+                        f"Resized pos-emb: {old_wpe.num_embeddings} -> {gpt_cfg.block_size}"
                     )
 
-        # --------------------------------------------------
         # 5. Load checkpoint  (ckpt.pt / checkpoint.pt / pytorch_model.bin)
-        # --------------------------------------------------
         ckpt_path = os.path.join(model_dir, "ckpt.pt")
         if not os.path.exists(ckpt_path):
             for alt in ("checkpoint.pt", "pytorch_model.bin"):
@@ -131,14 +119,12 @@ class NanoGPTA2CPolicy(nn.Module):
 
         missing, unexpected = self.model.load_state_dict(clean_state_dict, strict=False)
         if self.debug:
-            print(f"🔍 load_state_dict: missing={len(missing)} unexpected={len(unexpected)}")
+            print(f"load_state_dict: missing={len(missing)} unexpected={len(unexpected)}")
 
         print(f"✅ Successfully loaded A2C nanoGPT-RL model from {ckpt_path}")
 
-        # --------------------------------------------------
-        # 6. Load tokenizer（保持原优先级顺序）
-        # --------------------------------------------------
-        if not hasattr(self, "tokenizer"):  # 可能已在 fallback 中加载
+        # 6. Load tokenizer
+        if not hasattr(self, "tokenizer"):
             if tokenizer_path and os.path.exists(tokenizer_path):
                 self.tokenizer = GPT2Tokenizer.from_pretrained(
                     tokenizer_path, local_files_only=True
@@ -159,26 +145,18 @@ class NanoGPTA2CPolicy(nn.Module):
             self.tokenizer.pad_token = self.tokenizer.eos_token
             print("✅ Set pad_token to eos_token for padding support.")
 
-        # ★ FIX: 暴露 pad_token_id（trainer 可能依赖）
+        # Expose pad_token_id (trainer may depend on it)
         self.pad_token_id = self.tokenizer.pad_token_id
 
-        # --------------------------------------------------
-        # 7. vocab / embedding 尺寸对齐（关键：否则 <unk> 比例高 → PPL 爆炸）
-        # --------------------------------------------------
+        # 7. Align vocab/embedding size (critical: otherwise high <unk> ratio → PPL explosion)
         self._maybe_resize_token_embeddings(self.tokenizer.vocab_size)
 
-        # --------------------------------------------------
         # 8. A2C value head
-        # --------------------------------------------------
         self.value_head = nn.Linear(n_embd, 1)
-        # （设备迁移在外部 model.to(device) 时统一处理；无需额外手动）
 
-        # 记录当前设备（外部to后可被更新，不要缓存 stale tensor）
         self.device = next(self.parameters()).device
 
-    # ======================================================
-    # helper: vocab resize
-    # ======================================================
+    # Helper: vocab resize
     def _maybe_resize_token_embeddings(self, new_vocab: int):
         """If model token embedding size != tokenizer vocab, resize safely."""
         old_emb = self.model.transformer.wte
@@ -196,7 +174,7 @@ class NanoGPTA2CPolicy(nn.Module):
             new_emb.weight[:n_copy] = old_emb.weight[:n_copy]
         self.model.transformer.wte = new_emb
 
-        # lm_head 同步（若存在）
+        # lm_head synchronization (if present)
         if hasattr(self.model, "lm_head"):
             lm = self.model.lm_head
             if isinstance(lm, nn.Linear) and lm.out_features != new_vocab:
@@ -206,14 +184,12 @@ class NanoGPTA2CPolicy(nn.Module):
                     new_lm.weight[:n_copy] = lm.weight[:n_copy]
                 self.model.lm_head = new_lm
 
-        ### >>> 同步 config（防止后续使用旧 vocab_size 评估/采样时错位 → 高 PPL）
         if hasattr(self.model, "config"):
             try:
                 self.model.config.vocab_size = new_vocab
             except Exception:
                 pass
 
-        ### >>> 可选：若模型架构支持 tied weights，这里重新绑（否则略过）
         if hasattr(self.model, "tie_weights"):
             try:
                 self.model.tie_weights()
@@ -224,9 +200,7 @@ class NanoGPTA2CPolicy(nn.Module):
         if self.debug:
             print("🔧 token embeddings resized.")
 
-    # ======================================================
-    # forward
-    # ======================================================
+    # Forward
     def forward(
         self,
         input_ids: torch.Tensor,
@@ -235,17 +209,15 @@ class NanoGPTA2CPolicy(nn.Module):
         return_hidden_states: bool = False,  # ★ FIX: 保留可选输出隐藏层
     ):
         """
-        返回：
+        Returns:
             logits: [B, T, V]
-            value:  [B, 1]  (即便 labels!=None 训练阶段也返回；trainer 需要 baseline)
-            loss / lm_loss: 训练阶段可用 (CrossEntropy, shift)
-            hidden_states: 可选
+            value: [B, 1] (returned during training even if labels!=None; trainer requires a baseline)
+            loss / lm_loss: Available during training (CrossEntropy, shift)
+            hidden_states: Optional
         """
-        ### >>> 更新当前设备（避免初始化早期缓存）
         self.device = input_ids.device
 
-        # ---------- 调用底层 GPT ----------
-        # ★ FIX: 某些 GPT 不支持 attention_mask / return_hidden_states
+        # Calling the GPT
         try:
             logits, loss_model, hidden_states = self.model(
                 idx=input_ids,
@@ -254,15 +226,13 @@ class NanoGPTA2CPolicy(nn.Module):
                 return_hidden_states=True,
             )
         except TypeError:
-            # 回退不带额外参数的签名
             logits, loss_model = self.model(idx=input_ids, targets=labels)
             hidden_states = None
 
-        # ---------- baseline value ----------
+        # Baseline value
         if hidden_states is not None:
             last_hidden = hidden_states[-1]  # [B, T, C]
         else:
-            # 若底层不返 hidden，可通过嵌入 + 最后一层输出近似；此处直接用零 baseline。
             if self.debug:
                 print("⚠️  hidden_states=None → using zero baseline (degrade).")
             B = input_ids.size(0)
@@ -280,23 +250,21 @@ class NanoGPTA2CPolicy(nn.Module):
         last_token_hidden = last_hidden[:, -1, :]  # [B, C]
         value = self.value_head(last_token_hidden)  # [B, 1]
 
-        # ---------- LM loss ----------
+        # LM loss
         lm_loss = None
         if labels is not None:
             lm_loss = self._compute_lm_loss_safe(logits, labels)
 
-        # ---------- 输出 ----------
+        # Output
         out = {"logits": logits, "value": value}
         if lm_loss is not None:
             out["loss"] = lm_loss
-            out["lm_loss"] = lm_loss  # trainer/wandb 更易识别
+            out["lm_loss"] = lm_loss
         if return_hidden_states:
             out["hidden_states"] = hidden_states
         return out
 
-    # ======================================================
-    # CrossEntropy 计算（shift + ignore_index=-100）+ dtype 安全
-    # ======================================================
+    # CrossEntropy calculation (shift + ignore_index=-100) + dtype safety
     @staticmethod
     def _compute_lm_loss(logits: torch.Tensor, labels: torch.Tensor) -> torch.Tensor:
         shift_logits = logits[:, :-1, :].contiguous()
@@ -309,10 +277,8 @@ class NanoGPTA2CPolicy(nn.Module):
 
     @classmethod
     def _compute_lm_loss_safe(cls, logits: torch.Tensor, labels: torch.Tensor) -> torch.Tensor:
-        """### >>> 安全包装：确保 dtype / 形状 / -100 mask 正常，减少异常高损失。"""
         if labels.dtype != torch.long:
             labels = labels.long()
-        # 如果 labels 与 logits 长度不一致（极端情况），裁剪最短长度
         if labels.size(1) != logits.size(1):
             T = min(labels.size(1), logits.size(1))
             labels = labels[:, :T]

@@ -4,13 +4,13 @@ import re
 import ast
 from tqdm import tqdm
 
-# === CONFIG ===
+# Config
 input_pattern = 'arcade-nl2code/arcade_nl2code/annotated_dataset/dataset/new_tasks/derived_datasets/*.json'
 output_file = 'arcade-nl2code/arcade_nl2code/annotated_dataset/merged_dataset_new_tasks_cleaned_v2.jsonl'
 skipped_log_file = 'arcade-nl2code/arcade_nl2code/annotated_dataset/skipped_samples_debug_v2.jsonl'
 save_skipped = True
 
-# === SYNTAX CHECK FUNCTION ===
+# Syntax check function
 def is_valid_python(code: str) -> bool:
     try:
         ast.parse(code)
@@ -18,7 +18,7 @@ def is_valid_python(code: str) -> bool:
     except SyntaxError:
         return False
 
-# === HELPERS ===
+# Helpers
 def extract_question(text):
     lines = text.splitlines()
     for line in reversed(lines):
@@ -32,11 +32,11 @@ def clean_context(context):
     for line in lines:
         line = line.strip()
 
-        # 去除包含问题指令的注释行
+        # Remove comment lines that contain instruction-like text
         if line.startswith("#") and re.search(r'(how|what|which|why|who|problem|calculate|find|plot|count|create|get|show|return|determine|percentage)', line.lower()):
             continue
 
-        # 保留有用的代码上下文
+        # Keep useful code context
         if re.search(r'(import |read_csv|= pd\.|= np\.|from )', line):
             keep.append(line)
 
@@ -53,6 +53,7 @@ def clean_completion(code):
     return '\n'.join(keep)
 
 def is_valid_instruction(text):
+    # Filter out lines that look like code rather than natural-language instructions
     if re.match(r'^(import |df\.|[a-zA-Z0-9_]+ = )', text.strip()):
         return False
     if len(text.split()) < 3:
@@ -61,14 +62,14 @@ def is_valid_instruction(text):
 
 def format_code_block(text):
     """
-    清理尾部空格、压缩多余空行，保留原始缩进结构。
+    Trim trailing spaces, compress excessive blank lines, and preserve indentation.
     """
-    text = re.sub(r'\n{3,}', '\n\n', text.strip())  # 多余空行压缩为双换行
+    text = re.sub(r'\n{3,}', '\n\n', text.strip())
     lines = text.splitlines()
-    formatted = [line.rstrip() for line in lines]  # 保留前导空格，只清理行尾空格
+    formatted = [line.rstrip() for line in lines]
     return '\n'.join(formatted)
 
-# === MAIN ===
+# Main
 total_items = 0
 skipped_items = 0
 kept_items = 0
@@ -84,14 +85,13 @@ with open(output_file, 'w', encoding='utf-8') as out_f:
         for episode in episodes:
             for turn in episode.get("turns", []):
                 total_items += 1
-                # question = turn.get("turn", {}).get("intent", {}).get("value", "").strip()
-                # 尝试使用干净字段（推荐）
+
+                # Prefer the cleaned metadata field if available
                 question = turn.get("turn", {}).get("metadata", {}).get("utterance_without_output_spec", "").strip()
-                # 如果 metadata 中没有干净字段（极少数情况），fallback 到 intent.value 并清洗
+
+                # Fallback: use intent.value and strip the '# Problem:' prefix if present
                 if not question:
                     raw_question = turn.get("turn", {}).get("intent", {}).get("value", "").strip()
-                    # 清除前缀 # Problem:（多个也一起清）
-                    import re
                     question = re.sub(r"^(?:\s*#\s*Problem:\s*)+", "", raw_question)
 
                 code = turn.get("turn", {}).get("code", {}).get("value", "").strip()
@@ -99,29 +99,45 @@ with open(output_file, 'w', encoding='utf-8') as out_f:
                 context_cleaned = clean_context(context)
                 code_cleaned = clean_completion(code)
 
-                # 清洗逻辑
+                # Validate required fields
                 if not question or not code_cleaned:
                     skipped_items += 1
                     if save_skipped:
-                        skipped_out.write(json.dumps({"reason": "empty fields", "file": file_path, "question": question, "code": code}) + '\n')
+                        skipped_out.write(json.dumps({
+                            "reason": "empty fields",
+                            "file": file_path,
+                            "question": question,
+                            "code": code
+                        }) + '\n')
                     continue
 
                 if not is_valid_instruction(question) or len(code_cleaned.split()) < 2:
                     skipped_items += 1
                     if save_skipped:
-                        skipped_out.write(json.dumps({"reason": "invalid instruction", "file": file_path, "question": question}) + '\n')
+                        skipped_out.write(json.dumps({
+                            "reason": "invalid instruction",
+                            "file": file_path,
+                            "question": question
+                        }) + '\n')
                     continue
 
                 if not is_valid_python(code_cleaned):
                     skipped_items += 1
                     if save_skipped:
-                        skipped_out.write(json.dumps({"reason": "invalid python", "file": file_path, "code": code_cleaned}) + '\n')
+                        skipped_out.write(json.dumps({
+                            "reason": "invalid python",
+                            "file": file_path,
+                            "code": code_cleaned
+                        }) + '\n')
                     continue
 
                 if not context_cleaned.strip():
                     skipped_items += 1
                     if save_skipped:
-                        skipped_out.write(json.dumps({"reason": "empty context", "file": file_path}) + '\n')
+                        skipped_out.write(json.dumps({
+                            "reason": "empty context",
+                            "file": file_path
+                        }) + '\n')
                     continue
 
                 context_formatted = format_code_block(context_cleaned)
@@ -129,12 +145,12 @@ with open(output_file, 'w', encoding='utf-8') as out_f:
 
                 item = {
                     "prompt": (
-                        f"Instruction:\n"
+                        "Instruction:\n"
                         f"# Problem: {question.strip()}\n"
-                        f"Context:\n"
+                        "Context:\n"
                         f"{context_formatted.strip()}\n"
-                        f"###\n"
-                        f"Output:\n"
+                        "###\n"
+                        "Output:\n"
                     ),
                     "completion": f"{code_formatted.strip()}\n<|endoftext|>"
                 }
@@ -144,10 +160,10 @@ with open(output_file, 'w', encoding='utf-8') as out_f:
 
 if save_skipped:
     skipped_out.close()
-    print(f"🪵 跳过样本已记录在: {skipped_log_file}")
+    print(f"Skipped samples are logged to: {skipped_log_file}")
 
-print(f"✅ 合并并清洗完成，输出文件: {output_file}")
-print(f"\n✨ 总样本数: {total_items}")
-print(f"🚫 跳过样本数: {skipped_items}")
-print(f"✅ 保留有效样本: {kept_items}")
-print(f"📄 输出文件: {output_file}")
+print(f"Merge and cleaning completed. Output file: {output_file}")
+print(f"Total samples: {total_items}")
+print(f"Skipped samples: {skipped_items}")
+print(f"Kept samples: {kept_items}")
+print(f"Output file: {output_file}")

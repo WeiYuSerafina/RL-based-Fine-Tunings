@@ -18,11 +18,11 @@ def load_baseline_model(
     block_size: int = 256,
 ):
     """
-    加载 baseline GPT 模型与 tokenizer。
+    Load baseline GPT Model and tokenizer
     """
     # tokenizer
     tokenizer = GPT2TokenizerFast.from_pretrained(tokenizer_path)
-    # 模型
+    # Model
     config = GPTConfig(
         vocab_size=tokenizer.vocab_size,
         block_size=block_size,
@@ -31,7 +31,7 @@ def load_baseline_model(
         n_embd=n_embd,
     )
     model = GPT(config).to(device).eval()
-    # 自动选择 ckpt
+    # Automatically select ckpt
     if os.path.isdir(model_path):
         ckpt = os.path.join(model_path, "ckpt_step900.pt")
         if not os.path.isfile(ckpt):
@@ -46,7 +46,7 @@ def load_baseline_model(
 
 def load_prompt_completion_pairs(path: str, max_samples: int = 1000):
     """
-    和 PPO/A2C 脚本一致：读取 jsonl or json，提取 (prompt, prompt+completion) 对
+    Same as PPO/A2C script: read jsonl or json, extract (prompt, prompt+completion) pairs
     """
     if path.endswith(".jsonl"):
         with open(path, "r", encoding="utf-8") as f:
@@ -73,9 +73,9 @@ def evaluate_baseline_perplexity(
     max_length: int = 256,
 ):
     """
-    按批处理，但每个样本内部屏蔽 prompt，只评估 completion 部分：
-      - labels 前 prompt_len 置 -100
-      - loss.sum * valid_tokens / total_tokens -> exp -> PPL
+    Process the results in batches, but disable the prompt within each sample and only evaluate the completion portion:
+    - Prepend prompt_len to labels with -100
+    - Loss.sum * valid_tokens / total_tokens -> exp -> PPL
     """
     model.eval()
     total_nll = 0.0
@@ -84,7 +84,7 @@ def evaluate_baseline_perplexity(
     if tokenizer.eos_token is None:
         raise ValueError("Tokenizer has no eos_token; please set one before padding.")
     if tokenizer.pad_token is None:
-        tokenizer.pad_token = tokenizer.eos_token  # GPT-2 常用做法
+        tokenizer.pad_token = tokenizer.eos_token  # GPT-2 common practices
     tokenizer.padding_side = "right"
 
     for i in range(0, len(prompt_full_pairs), batch_size):
@@ -102,7 +102,7 @@ def evaluate_baseline_perplexity(
         input_ids = enc.input_ids.to(device)
         attn_mask = enc.attention_mask.to(device)
 
-        # 构造 labels：屏蔽 prompt + padding
+        # Construct labels: shield prompt + padding
         labels = input_ids.clone()
         for j, prompt in enumerate(prompts):
             prompt_ids = tokenizer(prompt, add_special_tokens=False).input_ids
@@ -111,15 +111,15 @@ def evaluate_baseline_perplexity(
         labels[attn_mask == 0] = -100  # 忽略 padding
 
         with torch.no_grad():
-            # 位置参数调用：idx=input_ids, targets=labels, attention_mask=None
+            # Positional parameter call：idx=input_ids, targets=labels, attention_mask=None
             out = model(idx=input_ids, targets=labels)
-            # GPT.forward 返回 (logits, loss)
+            # GPT.forward returns (logits, loss)
             if isinstance(out, tuple) and len(out) == 2:
                 _, loss = out
             else:
                 raise RuntimeError(f"Unexpected model output: {out}")
 
-        # 累积 NLL
+        # Cumulative NLL
         n_valid = (labels != -100).sum().item()
         total_nll += loss.item() * n_valid
         total_tokens += n_valid
