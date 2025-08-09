@@ -1,0 +1,312 @@
+{\rtf1\ansi\ansicpg1252\cocoartf2761
+\cocoatextscaling0\cocoaplatform0{\fonttbl\f0\fswiss\fcharset0 Helvetica;\f1\fnil\fcharset0 AppleColorEmoji;\f2\fnil\fcharset134 PingFangSC-Regular;
+}
+{\colortbl;\red255\green255\blue255;}
+{\*\expandedcolortbl;;}
+\paperw11900\paperh16840\margl1440\margr1440\vieww11520\viewh8400\viewkind0
+\pard\tx720\tx1440\tx2160\tx2880\tx3600\tx4320\tx5040\tx5760\tx6480\tx7200\tx7920\tx8640\pardirnatural\partightenfactor0
+
+\f0\fs24 \cf0 (jax-arm) serafinayu@Serafinas-MacBook-Pro nanoGPT-RL % python3 prepare.py\
+Reading data from google-research/mbpp/mbpp_train.jsonl...\
+Encoding train set: 100%|\uc0\u9608 \u9608 \u9608 \u9608 \u9608 \u9608 \u9608 \u9608 \u9608 \u9608 \u9608 \u9608 \u9608 \u9608 \u9608 \u9608 \u9608 \u9608 \u9608 \u9608 \u9608 \u9608 \u9608 \u9608 \u9608 \u9608 \u9608 \u9608 \u9608 \u9608 \u9608 \u9608 \u9608 \u9608 \u9608 \u9608 \u9608 \u9608 \u9608 \u9608 \u9608 \u9608 \u9608 \u9608 \u9608 \u9608 \u9608 \u9608 \u9608 \u9608 \u9608 \u9608 \u9608 \u9608 \u9608 \u9608 \u9608 \u9608 \u9608 \u9608 \u9608 \u9608 \u9608 \u9608 \u9608 \u9608 \u9608 \u9608 \u9608 \u9608 \u9608 \u9608 \u9608 \u9608 \u9608 \u9608 \u9608 \u9608 \u9608 \u9608 \u9608 \u9608 \u9608 \u9608 \u9608 \u9608 \u9608 \u9608 \u9608 \u9608 \u9608 \u9608 \u9608 \u9608 \u9608 | 493/493 [00:00<00:00, 1996.06it/s]\
+
+\f1 \uc0\u9888 \u65039 
+\f0  Skipped 26 samples in train set.\
+Encoding val set: 100%|\uc0\u9608 \u9608 \u9608 \u9608 \u9608 \u9608 \u9608 \u9608 \u9608 \u9608 \u9608 \u9608 \u9608 \u9608 \u9608 \u9608 \u9608 \u9608 \u9608 \u9608 \u9608 \u9608 \u9608 \u9608 \u9608 \u9608 \u9608 \u9608 \u9608 \u9608 \u9608 \u9608 \u9608 \u9608 \u9608 \u9608 \u9608 \u9608 \u9608 \u9608 \u9608 \u9608 \u9608 \u9608 \u9608 \u9608 \u9608 \u9608 \u9608 \u9608 \u9608 \u9608 \u9608 \u9608 \u9608 \u9608 \u9608 \u9608 \u9608 \u9608 \u9608 \u9608 \u9608 \u9608 \u9608 \u9608 \u9608 \u9608 \u9608 \u9608 \u9608 \u9608 \u9608 \u9608 \u9608 \u9608 \u9608 \u9608 \u9608 \u9608 \u9608 \u9608 \u9608 \u9608 \u9608 \u9608 \u9608 \u9608 \u9608 \u9608 \u9608 \u9608 \u9608 \u9608 \u9608 \u9608 \u9608 \u9608 \u9608 | 54/54 [00:00<00:00, 1947.43it/s]\
+
+\f1 \uc0\u9888 \u65039 
+\f0  Skipped 2 samples in val set.\
+Saved tokenized train/val to: data/mbpp_new/\
+Train token count: 49878\
+Val token count: 5967\
+\
+
+\f1 \uc0\u55357 \u56550 
+\f0  Preview 10 training samples:\
+\
+
+\f1 \uc0\u55357 \u56524 
+\f0  Sample 1:\
+Write a function to access the initial and last data of the given tuple record.\
+def front_and_rear(test_tup):\
+  res = (test_tup[0], test_tup[-1])\
+  return (res)\
+\
+
+\f1 \uc0\u55357 \u56524 
+\f0  Sample 2:\
+Write a function to find the sum of maximum increasing subsequence of the given array.\
+def max_sum_increasing_subsequence(arr, n): \
+        max = 0\
+        msis = [0 for x in range(n)] \
+        for i in range(n): \
+                msis[i] = arr[i] \
+        for i in range(1, n): \
+                for j in range(i): \
+                        if (arr[i] > arr[j] and\
+                                msis[i] < msis[j] + arr[i]): \
+                                msis[i] = msis[j] + arr[i] \
+        for i in range(n): \
+                if max < msis[i]: \
+                        max = msis[i] \
+        return max\
+\
+
+\f1 \uc0\u55357 \u56524 
+\f0  Sample 3:\
+Write a function to find minimum number of coins that make a given value.\
+import sys \
+def min_coins(coins, m, V): \
+    if (V == 0): \
+        return 0\
+    res = sys.maxsize \
+    for i in range(0, m): \
+        if (coins[i] <= V): \
+            sub_res = min_coins(coins, m, V-coins[i]) \
+            if (sub_res != sys.maxsize and sub_res + 1 < res): \
+                res = sub_res + 1  \
+    return res\
+\
+
+\f1 \uc0\u55357 \u56524 
+\f0  Sample 4:\
+Write a function to flatten the given tuple matrix into the tuple list with each tuple representing each column.\
+def matrix_to_list(test_list):\
+  temp = [ele for sub in test_list for ele in sub]\
+  res = list(zip(*temp))\
+  return (str(res))\
+\
+
+\f1 \uc0\u55357 \u56524 
+\f0  Sample 5:\
+Write a function that matches a word at the end of a string, with optional punctuation.\
+import re\
+def text_match_word(text):\
+        patterns = '\\w+\\S*$'\
+        if re.search(patterns,  text):\
+                return 'Found a match!'\
+        else:\
+                return 'Not matched!'\
+\
+
+\f1 \uc0\u55357 \u56524 
+\f0  Sample 6:\
+Write a function to extract the maximum numeric value from a string by using regex.\
+import re \
+def extract_max(input): \
+        numbers = re.findall('\\d+',input) \
+        numbers = map(int,numbers) \
+        return max(numbers)\
+\
+
+\f1 \uc0\u55357 \u56524 
+\f0  Sample 7:\
+Write a function to sort a list of lists by length and value.\
+def sort_sublists(list1):\
+      list1.sort()  \
+      list1.sort(key=len)\
+      return  list1\
+\
+
+\f1 \uc0\u55357 \u56524 
+\f0  Sample 8:\
+Write a function to sort a list of lists by a given index of the inner list.\
+from operator import itemgetter\
+def index_on_inner_list(list_data, index_no):\
+    result = sorted(list_data, key=itemgetter(index_no))\
+    return result\
+\
+
+\f1 \uc0\u55357 \u56524 
+\f0  Sample 9:\
+Write a function to calculate the perimeter of a regular polygon.\
+from math import tan, pi\
+def perimeter_polygon(s,l):\
+  perimeter = s*l\
+  return perimeter\
+\
+
+\f1 \uc0\u55357 \u56524 
+\f0  Sample 10:\
+Write a function to perform the adjacent element concatenation in the given tuples.\
+def concatenate_elements(test_tup):\
+  res = tuple(i + j for i, j in zip(test_tup, test_tup[1:]))\
+  return (res)\
+(jax-arm) serafinayu@Serafinas-MacBook-Pro nanoGPT-RL % p  \
+zsh: command not found: p\
+(jax-arm) serafinayu@Serafinas-MacBook-Pro nanoGPT-RL % python3 train.py\
+tokens per iteration will be: 4,096\
+found vocab_size = 50257 (inside data/mbpp_new/meta.pkl)\
+Initializing a new model from scratch\
+number of parameters: 16.08M\
+/Users/serafinayu/PycharmProjects/nanoGPT-RL/train.py:205: FutureWarning: `torch.cuda.amp.GradScaler(args...)` is deprecated. Please use `torch.amp.GradScaler('cuda', args...)` instead.\
+  scaler = torch.cuda.amp.GradScaler(enabled=(dtype == 'float16')) # Original code\
+Using device: cpu, dtype: float32\
+num decayed parameter tensors: 18, with 16,077,056 parameters\
+num non-decayed parameter tensors: 35, with 64,081 parameters\
+using fused AdamW: False\
+
+\f1 \uc0\u55357 \u56960 
+\f0  No checkpoint found, training from scratch.\
+wandb: Currently logged in as: weiyuserafina (weiyuserafina-ludwig-maximilians-universit-t-m-nchen) to https://api.wandb.ai. Use `wandb login --relogin` to force relogin\
+wandb: Tracking run with wandb version 0.19.11\
+wandb: Run data is saved locally in /Users/serafinayu/PycharmProjects/nanoGPT-RL/wandb/run-20250702_103037-6miape9v\
+wandb: Run `wandb offline` to turn off syncing.\
+wandb: Syncing run baseline_run_1751445035.0416331\
+wandb: 
+\f1 \uc0\u11088 \u65039 
+\f0  View project at https://wandb.ai/weiyuserafina-ludwig-maximilians-universit-t-m-nchen/nanoGPT-RL_mbpp_baseline_v2\
+wandb: 
+\f1 \uc0\u55357 \u56960 
+\f0  View run at https://wandb.ai/weiyuserafina-ludwig-maximilians-universit-t-m-nchen/nanoGPT-RL_mbpp_baseline_v2/runs/6miape9v\
+step 0: train loss 10.7302, val loss 10.7217\
+iter 0: loss 10.7143, time 27567.56ms, mfu -100.00%\
+iter 10: loss 9.8009, time 1180.60ms, mfu 0.11%\
+iter 20: loss 9.3675, time 1202.09ms, mfu 0.11%\
+iter 30: loss 8.4047, time 1232.41ms, mfu 0.11%\
+iter 40: loss 7.6699, time 1221.59ms, mfu 0.11%\
+step 50: train loss 6.5224, val loss 6.5863\
+New best val loss. Saving checkpoint to out/mbpp_baseline_v2\
+iter 50: loss 6.6756, time 23730.57ms, mfu 0.10%\
+iter 60: loss 5.5279, time 1401.24ms, mfu 0.10%\
+iter 70: loss 4.7867, time 1314.28ms, mfu 0.10%\
+iter 80: loss 4.1578, time 1666.25ms, mfu 0.10%\
+iter 90: loss 3.8537, time 1419.66ms, mfu 0.10%\
+step 100: train loss 3.3771, val loss 3.6563\
+New best val loss. Saving checkpoint to out/mbpp_baseline_v2\
+iter 100: loss 3.3939, time 23647.76ms, mfu 0.09%\
+iter 110: loss 3.4142, time 1179.39ms, mfu 0.09%\
+iter 120: loss 3.3863, time 1673.69ms, mfu 0.09%\
+iter 130: loss 2.9439, time 2200.10ms, mfu 0.09%\
+iter 140: loss 2.9221, time 1190.03ms, mfu 0.09%\
+step 150: train loss 2.7943, val loss 3.1725\
+New best val loss. Saving checkpoint to out/mbpp_baseline_v2\
+iter 150: loss 2.7731, time 22943.58ms, mfu 0.08%\
+iter 160: loss 2.9619, time 1261.55ms, mfu 0.08%\
+iter 170: loss 2.6210, time 1153.87ms, mfu 0.09%\
+iter 180: loss 2.5545, time 1224.49ms, mfu 0.09%\
+iter 190: loss 2.4807, time 1176.80ms, mfu 0.09%\
+step 200: train loss 2.5166, val loss 3.0278\
+New best val loss. Saving checkpoint to out/mbpp_baseline_v2\
+iter 200: loss 2.6506, time 24871.02ms, mfu 0.08%\
+iter 210: loss 2.5446, time 1198.08ms, mfu 0.08%\
+iter 220: loss 2.5826, time 1156.77ms, mfu 0.09%\
+iter 230: loss 2.2895, time 1316.35ms, mfu 0.09%\
+iter 240: loss 2.3038, time 1176.68ms, mfu 0.09%\
+step 250: train loss 2.2760, val loss 2.8834\
+New best val loss. Saving checkpoint to out/mbpp_baseline_v2\
+iter 250: loss 2.2724, time 24164.49ms, mfu 0.08%\
+iter 260: loss 2.4900, time 1220.11ms, mfu 0.08%\
+iter 270: loss 2.1270, time 1197.72ms, mfu 0.09%\
+iter 280: loss 2.2146, time 1635.93ms, mfu 0.09%\
+iter 290: loss 2.0688, time 1213.53ms, mfu 0.09%\
+step 300: train loss 2.0655, val loss 2.7468\
+New best val loss. Saving checkpoint to out/mbpp_baseline_v2\
+iter 300: loss 2.0283, time 25577.22ms, mfu 0.08%\
+iter 310: loss 2.1095, time 1262.53ms, mfu 0.08%\
+iter 320: loss 2.0345, time 2519.91ms, mfu 0.08%\
+iter 330: loss 2.0585, time 1665.34ms, mfu 0.08%\
+iter 340: loss 2.2293, time 1248.69ms, mfu 0.08%\
+step 350: train loss 1.9054, val loss 2.6680\
+New best val loss. Saving checkpoint to out/mbpp_baseline_v2\
+iter 350: loss 1.9150, time 26144.19ms, mfu 0.07%\
+iter 360: loss 2.0180, time 1634.80ms, mfu 0.07%\
+iter 370: loss 1.8731, time 1278.90ms, mfu 0.08%\
+iter 380: loss 2.1276, time 1455.97ms, mfu 0.08%\
+iter 390: loss 1.9982, time 1430.49ms, mfu 0.08%\
+step 400: train loss 1.7536, val loss 2.6219\
+New best val loss. Saving checkpoint to out/mbpp_baseline_v2\
+iter 400: loss 1.9337, time 24472.05ms, mfu 0.07%\
+iter 410: loss 2.0142, time 1179.93ms, mfu 0.08%\
+iter 420: loss 1.7141, time 1240.11ms, mfu 0.08%\
+iter 430: loss 1.6496, time 1607.08ms, mfu 0.08%\
+iter 440: loss 1.7821, time 1493.37ms, mfu 0.08%\
+step 450: train loss 1.6648, val loss 2.6494\
+Saving regular checkpoint (not best) to out/mbpp_baseline_v2\
+Val loss did not improve. early_stop_counter = 1/8\
+iter 450: loss 1.7277, time 23786.53ms, mfu 0.07%\
+iter 460: loss 1.7164, time 1212.97ms, mfu 0.08%\
+iter 470: loss 1.5460, time 1627.87ms, mfu 0.08%\
+iter 480: loss 1.6185, time 1187.75ms, mfu 0.08%\
+step 400: train loss 1.7536, val loss 2.6219\
+iter 490: loss 1.5500, time 1226.15ms, mfu 0.08%\
+step 500: train loss 1.5433, val loss 2.6230\
+Saving regular checkpoint (not best) to out/mbpp_baseline_v2\
+Val loss did not improve. early_stop_counter = 2/8\
+iter 500: loss 1.6120, time 22620.81ms, mfu 0.08%\
+iter 510: loss 1.6450, time 1308.13ms, mfu 0.08%\
+iter 520: loss 1.6357, time 1175.58ms, mfu 0.08%\
+iter 530: loss 1.6714, time 1397.72ms, mfu 0.08%\
+iter 540: loss 1.4715, time 1457.21ms, mfu 0.08%\
+step 550: train loss 1.4351, val loss 2.5677\
+New best val loss. Saving checkpoint to out/mbpp_baseline_v2\
+iter 550: loss 1.3766, time 25121.21ms, mfu 0.08%\
+iter 560: loss 1.4411, time 1227.41ms, mfu 0.08%\
+iter 570: loss 1.5130, time 1140.99ms, mfu 0.08%\
+iter 580: loss 1.5496, time 1181.87ms, mfu 0.08%\
+iter 590: loss 1.3349, time 1158.26ms, mfu 0.09%\
+step 600: train loss 1.3415, val loss 2.5991\
+Saving regular checkpoint (not best) to out/mbpp_baseline_v2\
+Val loss did not improve. early_stop_counter = 1/8\
+iter 600: loss 1.3536, time 23418.37ms, mfu 0.08%\
+iter 610: loss 1.4257, time 1754.91ms, mfu 0.08%\
+iter 620: loss 1.3723, time 1354.19ms, mfu 0.08%\
+^CTraceback (most recent call last):\
+  File "/Users/serafinayu/PycharmProjects/nanoGPT-RL/train.py", line 357, in <module>\
+    scaler.scale(loss).backward()\
+  File "/Users/serafinayu/miniforge3/envs/jax-arm/lib/python3.9/site-packages/torch/_tensor.py", line 626, in backward\
+    torch.autograd.backward(\
+  File "/Users/serafinayu/miniforge3/envs/jax-arm/lib/python3.9/site-packages/torch/autograd/__init__.py", line 347, in backward\
+    _engine_run_backward(\
+  File "/Users/serafinayu/miniforge3/envs/jax-arm/lib/python3.9/site-packages/torch/autograd/graph.py", line 823, in _engine_run_backward\
+    return Variable._execution_engine.run_backward(  # Calls into the C++ engine to run the backward pass\
+  File "/Users/serafinayu/miniforge3/envs/jax-arm/lib/python3.9/site-packages/wandb/integration/torch/wandb_torch.py", line 276, in <lambda>\
+    handle = var.register_hook(lambda grad: _callback(grad, log_track))\
+KeyboardInterrupt\
+Traceback (most recent call last):\
+  File "/Users/serafinayu/PycharmProjects/nanoGPT-RL/train.py", line 357, in <module>\
+    scaler.scale(loss).backward()\
+  File "/Users/serafinayu/miniforge3/envs/jax-arm/lib/python3.9/site-packages/torch/_tensor.py", line 626, in backward\
+    torch.autograd.backward(\
+  File "/Users/serafinayu/miniforge3/envs/jax-arm/lib/python3.9/site-packages/torch/autograd/__init__.py", line 347, in backward\
+    _engine_run_backward(\
+  File "/Users/serafinayu/miniforge3/envs/jax-arm/lib/python3.9/site-packages/torch/autograd/graph.py", line 823, in _engine_run_backward\
+    return Variable._execution_engine.run_backward(  # Calls into the C++ engine to run the backward pass\
+  File "/Users/serafinayu/miniforge3/envs/jax-arm/lib/python3.9/site-packages/wandb/integration/torch/wandb_torch.py", line 276, in <lambda>\
+    handle = var.register_hook(lambda grad: _callback(grad, log_track))\
+KeyboardInterrupt\
+wandb: \
+wandb: 
+\f1 \uc0\u55357 \u56960 
+\f0  View run baseline_run_1751445035.0416331 at: https://wandb.ai/weiyuserafina-ludwig-maximilians-universit-t-m-nchen/nanoGPT-RL_mbpp_baseline_v2/runs/6miape9v\
+wandb: Find logs at: wandb/run-20250702_103037-6miape9v/logs\
+(jax-arm) serafinayu@Serafinas-MacBook-Pro nanoGPT-RL % \
+\
+/Users/serafinayu/miniforge3/envs/jax-arm/bin/python /Users/serafinayu/PycharmProjects/nanoGPT-RL/evaluate_perplexity.py \
+number of parameters: 16.08M\
+
+\f1 \uc0\u9989 
+\f0  
+\f2 \'c4\'a3\'d0\'cd\'c8\'a8\'d6\'d8\'bc\'d3\'d4\'d8\'b3\'c9\'b9\'a6\'a3\'ac\'b9\'b2\'b2\'ce\'ca\'fd\'c1\'bf\'a3\'ba
+\f0  16.141137 M\
+
+\f1 \uc0\u9989 
+\f0  The total number of tokens after concatenation: 65684\
+  0%|          | 0/514 [00:00<?, ?it/s]huggingface/tokenizers: The current process just got forked, after parallelism has already been used. Disabling parallelism to avoid deadlocks...\
+To disable this warning, you can either:\
+	- Avoid using `tokenizers` before the fork if possible\
+	- Explicitly set the environment variable TOKENIZERS_PARALLELISM=(true | false)\
+100%|\uc0\u9608 \u9608 \u9608 \u9608 \u9608 \u9608 \u9608 \u9608 \u9608 
+\f2 \'a8\'81
+\f0 | 512/514 [00:14<00:00, 35.93it/s]\
+\
+
+\f1 \uc0\u9989 
+\f0  Evaluation completed
+\f2 \'a3\'ba
+\f0 \
+Average NLL: 1.8413\
+Perplexity (only on completion): 6.30\
+\
+Process finished with exit code 0\
+}
