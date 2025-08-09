@@ -225,3 +225,14 @@ For more questions/discussions feel free to stop by **#nanoGPT** on Discord:
 ## acknowledgements
 
 All nanoGPT experiments are powered by GPUs on [Lambda labs](https://lambdalabs.com), my favorite Cloud GPU provider. Thank you Lambda labs for sponsoring nanoGPT!
+
+### Used Code from Google Research
+
+This project includes three source files originally from the Google Research repository, licensed under Apache 2.0.  
+We have included only the files essential to reproduce our results:
+
+- `mbpp.jsonl`
+- `sanitized-mbpp.json`
+
+These files retain their original copyright and license headers.  
+Original repository: https://github.com/google-research/google-research

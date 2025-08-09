@@ -8,3 +8,7 @@ __pycache__/
 *.pt
 *.pyc
 input.txt
+
+!data/mbpp_new/train.bin
+!data/mbpp_new/val.bin
+!data/mbpp_new/meta.pkl
