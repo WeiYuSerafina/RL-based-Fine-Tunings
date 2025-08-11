@@ -28,7 +28,7 @@ $ python3 prepare.py
 $ python3 train.py
 ```
 
-Evaluate Perplexity (PPL):
+Baseline evaluation(PPL):
 ```
 $ python3 baseline_evalute_perplexity.py
 
