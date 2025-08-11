@@ -8,7 +8,7 @@ from reward_function  import reward_function
 from dataset_loader   import MBPPDataset
 from nano_gpt_ppo_policy import NanoGPTPolicy
 
-# ---------------- 1. 组件初始化 ----------------
+# 1. Initialization
 tokenizer = AutoTokenizer.from_pretrained("nanoGPT-RL/data/mbpp_new")
 model     = NanoGPTPolicy("nanoGPT-RL/out/mbpp_baseline_v2")
 
@@ -19,7 +19,7 @@ dataset   = MBPPDataset("google-research/mbpp/mbpp_train.jsonl")
 
 print(f"✅ PPOTrainer init · params={sum(p.numel() for p in model.parameters()):,}")
 
-# ---------------- 2. 采样函数 -------------------
+# 2. Sampling function
 def rollout_to_buffer(rollouts, batch_size):
     buffer.clear()
     for _ in range(rollouts):
@@ -37,7 +37,7 @@ def rollout_to_buffer(rollouts, batch_size):
         for pr, g, r, l in zip(prompts, gen, rewards, lp.tolist()):
             buffer.add(pr, g, float(r), float(l))
 
-# ---------------- 3. PPO 训练函数 ---------------
+# 3. PPO training function
 def train_ppo(cfg):
 
     best_reward, no_improve = -1e9, 0
@@ -71,9 +71,8 @@ def train_ppo(cfg):
             if no_improve >= cfg.early_stop_patience:
                 print("🛑 Early stopping"); break
 
-# ---------------- 4. 入口 ----------------------
+# 4. Entrance
 if __name__ == "__main__":
-    # 若 run.py 已先 wandb.init()，以下判断会跳过
     if not wandb.run:
         wandb.init(project="nanoGPT-RL-PPO",
                    config=dict(lr=1e-5, batch_size=8, max_new_tokens=100,

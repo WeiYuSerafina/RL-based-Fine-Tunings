@@ -15,7 +15,6 @@ from reward_function import reward_function
 from dataset_loader import MBPPDataset
 from ppo_trainer import PPOTrainer
 
-# run_ppo.py
 from evaluate_ppo_a2c_perplexity import evaluate_perplexity,load_prompt_completion_pairs
 import csv, os
 
@@ -28,9 +27,7 @@ def log_ppl_to_csv(step: int, ppl: float, csv_path: str):
             w.writerow(["step", "ppl"])
         w.writerow([step, ppl])
 
-
-
-# === Sweep config ===
+# Sweep config
 sweep_config = {
     "method": "random",
     "metric": {"name": "moving_avg_reward", "goal": "maximize"},
@@ -46,29 +43,29 @@ sweep_config = {
     }
 }
 
-# === main training loop ===
+# Main training loop
 from types import SimpleNamespace
 
 def train_loop(cfg: SimpleNamespace):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-    # --- load model & tokenizer ---
+    # load model & tokenizer
     model_name = "./out/mbpp_baseline_v3"
     tokenizer_path = "./data/mbpp_new"
 
     model = NanoGPTPolicy(model_name, tokenizer_path=tokenizer_path)
     tokenizer = model.tokenizer
 
-    # --- optimizer & scheduler ---
+    # optimizer & scheduler
     optimizer = torch.optim.AdamW(model.parameters(), lr=cfg.lr)
     scheduler = torch.optim.lr_scheduler.LinearLR(optimizer, start_factor=1.0, end_factor=0.1,
                                                   total_iters=cfg.total_steps)
 
-    # --- helpers ---
+    # helpers
     buffer = TrajectoryBuffer()
     ppo = PPOTrainer(model, tokenizer, optimizer, buffer, clip_epsilon=0.2, config=cfg)
 
-    # --- load dataset ---
+    # load dataset
     dataset_path = 'google-research/mbpp/mbpp_train.jsonl'
     dataset = MBPPDataset(dataset_path)
 
@@ -94,19 +91,19 @@ def train_loop(cfg: SimpleNamespace):
 
         buffer.add(prompt, gen_code, reward, log_probs.mean().item())
 
-        # --- PPO update ---
+        # PPO update
         if len(buffer) >= cfg.batch_size:
             loss = ppo.update(buffer)
             buffer.clear()
             scheduler.step()
 
-        # --- moving average reward ---
+        # moving average reward
         recent_rewards.append(reward)
         if len(recent_rewards) > 50:
             recent_rewards.pop(0)
         avg_recent_reward = float(np.mean(recent_rewards))
 
-        # --- logging ---
+        # logging
         if step % cfg.log_interval == 0:
             wandb.log(
                 {
@@ -114,24 +111,22 @@ def train_loop(cfg: SimpleNamespace):
                 "reward": reward,
                 "moving_avg_reward": avg_recent_reward,
                 "lr": optimizer.param_groups[0]['lr'],
-                **getattr(ppo, "last_stats", {}),# ← 把 PPOTrainer.update() 中保存的 loss/kl 等一并展开
+                **getattr(ppo, "last_stats", {}),
                 },
-                step=step, # ← 用 step 参数做全局步数
+                step=step,
             )
 
-        # --- evaluation print ---
+        # evaluation print
         if step % cfg.eval_interval == 0:
             print(f"[Step {step}] AvgReward={avg_recent_reward:.4f} | Reward={reward:.4f}")
 
-        # === Evaluate PPL + write to CSV ===
+        # evaluate PPL + write to CSV
         try:
-            # 1. 把验证集转换为 (prompt, full_text) 对
             eval_pairs = load_prompt_completion_pairs(
                 path='google-research/mbpp/sanitized-mbpp.json',
                 max_samples=50
             )
 
-            # 2. 直接调用 evaluate_perplexity(model, ...)  ← 来自 evaluate_ppo_a2c_perplexity.py
             ppl_val = evaluate_perplexity(
                 model=model,
                 tokenizer=tokenizer,
@@ -140,7 +135,6 @@ def train_loop(cfg: SimpleNamespace):
                 max_length=256,
             )
 
-            # 3. 记录到 CSV 与 wandb
             log_ppl_to_csv(step, ppl_val, "./logs/ppl_ppo.csv")
             wandb.log({"ppl": ppl_val}, step=step)
             print(f"[Step {step}] PPL(PPO) = {ppl_val:.2f}")
@@ -148,7 +142,7 @@ def train_loop(cfg: SimpleNamespace):
         except Exception as e:
             print(f"[Warning] Failed to evaluate PPL at step {step}: {e}")
 
-        # --- early stopping ---
+        # early stopping
         if avg_recent_reward > best_avg_reward:
             best_avg_reward, best_step = avg_recent_reward, step
             best_state = model.model.state_dict()
@@ -160,12 +154,12 @@ def train_loop(cfg: SimpleNamespace):
             print(f"Early stopped at step {step}, moving_avg_reward no longer improves.")
             break
 
-    # --- save best ---
+    # save best
     out_dir = f"./saved_nanoGPT_finetuned/PPO_best_step_{best_step}"
     os.makedirs(out_dir, exist_ok=True)
     torch.save(best_state, os.path.join(out_dir, "pytorch_model.bin"))
 
-    # === 把底层 GPT 的 config 写成 JSON ===
+    # write the underlying GPT config as JSON
     gpt_cfg_dict = model.model.config.__dict__  # GPTConfig 转字典
     with open(f"{out_dir}/config.json", "w") as f:
         json.dump(gpt_cfg_dict, f, indent=2)
@@ -174,7 +168,7 @@ def train_loop(cfg: SimpleNamespace):
     tokenizer.save_pretrained(out_dir)
     print(f"Best model saved to {out_dir} (step={best_step}, avg_reward={best_avg_reward:.4f})")
 
-# === Command-Line Interface (CLI) ===
+# CLI
 def main():
     wandb.init(
         project="nanoGPT-RL-PPO",

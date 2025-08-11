@@ -1,9 +1,7 @@
-# a2c_rollout.py  (示例文件名；与 run_a2c.py 保持 import 一致)
 import torch
 from typing import List, Optional
 from trajectory_buffer_a2c import TrajectoryBuffer
 from reward_function import reward_function
-
 
 def train(
     model,
@@ -18,12 +16,6 @@ def train(
 ):
     """
     Minimal rollout loop for on-policy A2C fine-tuning.
-
-    After FIX:
-      • Collect full generated token seq (actions) per sample.
-      • Slice out *generated-only* text for reward_function().
-      • Call reward_function with correct arg names/order.
-      • No wandb here (centralized in run_a2c.py).
     """
     buffer: TrajectoryBuffer = trainer.buffer
     model.eval()  # rollout w/o grad
@@ -34,22 +26,18 @@ def train(
             step += 1
             prompt: str = sample["prompt"]
 
-            # --------------------------------------------------
             # 1) Encode prompt
-            # --------------------------------------------------
             enc = tokenizer(
                 prompt,
                 return_tensors="pt",
-                add_special_tokens=False,  # ### FIX: 保持与训练一致，避免多余 BOS/EOS
+                add_special_tokens=False,
             )
             inputs = {k: v.to(device) for k, v in enc.items()}
             input_ids = inputs["input_ids"]               # [1, T_prompt]
             attention_mask = inputs.get("attention_mask") # [1, T_prompt] or None
-            prompt_len = input_ids.size(1)                # ### FIX: 记录 prompt token 长度
+            prompt_len = input_ids.size(1)                # Record the prompt token length
 
-            # --------------------------------------------------
             # 2) Baseline value for prompt state
-            # --------------------------------------------------
             with torch.no_grad():
                 out0 = model(
                     input_ids=input_ids,
@@ -58,17 +46,15 @@ def train(
                 )
                 value0 = out0["value"]  # [1, 1]
 
-            # --------------------------------------------------
             # 3) Autoregressive sampling
-            # --------------------------------------------------
             generated_ids = input_ids[0].clone().to(device)  # flatten → [T]
-            gen_actions: List[torch.Tensor] = []             # ### FIX: 收集所有新 token
-            gen_log_probs: List[torch.Tensor] = []           # ### FIX: 同步 logprob
+            gen_actions: List[torch.Tensor] = []
+            gen_log_probs: List[torch.Tensor] = []
 
             for _ in range(max_new_tokens):
                 out = model(
                     input_ids=generated_ids.unsqueeze(0),
-                    attention_mask=None,  # 自行推导；序列随生成增长
+                    attention_mask=None,
                     labels=None,
                 )
                 logits = out["logits"]                      # [1, cur_T, V]
@@ -78,8 +64,8 @@ def train(
                 action = dist.sample()                      # scalar token id
                 logp = dist.log_prob(action)                # scalar logprob
 
-                gen_actions.append(action)                  # ### FIX: push
-                gen_log_probs.append(logp)                  # ### FIX: push
+                gen_actions.append(action)
+                gen_log_probs.append(logp)
 
                 generated_ids = torch.cat([generated_ids, action.unsqueeze(0)], dim=0)
 
@@ -87,28 +73,21 @@ def train(
                 if action.item() == tokenizer.eos_token_id:
                     break
 
-            # --------------------------------------------------
             # 4) Decode
-            # --------------------------------------------------
             decoded_full = tokenizer.decode(generated_ids.tolist())
-            # ### FIX: 只取生成段用于 reward
+            # Only the generated segment is used for reward
             generated_code_only = tokenizer.decode(
                 generated_ids[prompt_len:].tolist()
             )
 
-            # --------------------------------------------------
-            # 5) Reference code（来自数据集 sample）
-            # --------------------------------------------------
-            # ### FIX: 兼容 MBPP 字段名
+            # 5) Reference code
             reference_code = (
                 sample.get("code")
                 or sample.get("completion")
                 or ""
             )
 
-            # --------------------------------------------------
-            # 6) Reward (正确参数顺序/命名)
-            # --------------------------------------------------
+            # 6) Reward
             reward = reward_function(
                 generated_code=generated_code_only,  # ### FIX
                 reference_code=reference_code,       # ### FIX
@@ -116,21 +95,17 @@ def train(
             )
             done = True
 
-            # 平均 logprob（仅日志用；策略梯度用 token 列表）
             if gen_log_probs:
                 avg_log_prob = torch.stack(gen_log_probs).mean()
             else:
                 avg_log_prob = torch.tensor(0.0, device=device)
 
-            # --------------------------------------------------
             # 7) Push to buffer
-            # --------------------------------------------------
             full_state_cpu = generated_ids.cpu()            # prompt+gen
             if gen_actions:
                 actions_cpu = torch.stack(gen_actions).cpu()   # [T_gen]
                 logps_cpu   = torch.stack(gen_log_probs).cpu() # [T_gen]
             else:
-                # 空生成（很少发生）
                 actions_cpu = torch.tensor([tokenizer.eos_token_id])
                 logps_cpu   = torch.tensor([0.0])
 
@@ -143,9 +118,7 @@ def train(
                 value0.squeeze(0).cpu(),   # baseline from prompt
             )
 
-            # --------------------------------------------------
             # 8) Debug print
-            # --------------------------------------------------
             if debug and step % 50 == 0:
                 print(
                     f"\n[Rollout Step {step}] "
@@ -157,15 +130,9 @@ def train(
                     print("Generated (gen-only):\n", generated_code_only)
                     print("Reference:\n", reference_code)
 
-        # --------------------------------------------------
         # 9) policy/value update after epoch
-        # --------------------------------------------------
-        logs = trainer.train_step()  # trainer 内部 reset buffer
+        logs = trainer.train_step()
 
-        # ### FIX: 删掉重复 buffer.reset() —— 已在 trainer.train_step() 中完成
-        # buffer.reset()
-
-        # 简单 stdout 日志（wandb 在 run_a2c.py）
         if logs:
             line = " | ".join(
                 f"{k}={v:.4f}" if isinstance(v, (int, float)) else f"{k}={v}"

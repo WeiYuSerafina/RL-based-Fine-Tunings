@@ -1,12 +1,3 @@
-# run_a2c.py — A2C training entry with masked-PPL + on-policy rollout
-# ===================================================================
-# Minimal-intrusion rewrite with 3 core fixes:
-#   (1) masked_ppl_single() truncates to block_size.            ### FIX
-#   (2) evaluate_perplexity_masked() enforces max_len<=block.   ### FIX
-#   (3) Training loop actually *collects rollouts* into buffer. ### FIX
-#
-# Search for "### FIX" to see all patch points.
-
 from __future__ import annotations
 
 import os
@@ -23,17 +14,13 @@ import torch
 import wandb
 from datasets import load_dataset
 
-from a2c_trainer import A2CTrainer            # your trainer (no wandb inside)
+from a2c_trainer import A2CTrainer
 from trajectory_buffer_a2c import TrajectoryBuffer
 from reward_function import reward_function
 from nano_gpt_a2c_policy import NanoGPTA2CPolicy
 from evaluate_ppo_a2c_perplexity import evaluate_perplexity, load_prompt_completion_pairs
 
-
-# =============================================================================
 # logging utils
-# =============================================================================
-
 def log_ppl_to_csv(step: int, ppl: float, csv_path: str):
     os.makedirs(os.path.dirname(csv_path), exist_ok=True)
     write_header = not os.path.exists(csv_path)
@@ -42,7 +29,6 @@ def log_ppl_to_csv(step: int, ppl: float, csv_path: str):
         if write_header:
             w.writerow(["step", "ppl"])
         w.writerow([step, ppl])
-
 
 def setup_logger() -> str:
     log_dir = "logs/logs_A2C"
@@ -66,11 +52,7 @@ def setup_logger() -> str:
     sys.stdout = Tee(log_file)
     return timestamp
 
-
-# =============================================================================
 # sweep config
-# =============================================================================
-
 sweep_config = {
     "method": "random",
     "metric": {"name": "moving_avg_reward", "goal": "maximize"},
@@ -83,11 +65,7 @@ sweep_config = {
     },
 }
 
-
-# =============================================================================
 # wandb-safe scalar
-# =============================================================================
-
 def _scalar(x: Any):
     if hasattr(x, "item"):
         try:
@@ -102,7 +80,6 @@ def _scalar(x: Any):
         return None
     return x
 
-
 def _rollout_batch(
     *,
     model: NanoGPTA2CPolicy,
@@ -114,15 +91,12 @@ def _rollout_batch(
     max_new_tokens: int,
     debug: bool = False,
 ) -> None:
-    """
-    Sample `batch_size` items from dataset → generate → reward → buffer.store().
-    This is the *on-policy* data collection you were missing.          ### FIX
-    """
+
     model.eval()
     pad_id = tokenizer.pad_token_id
     block_size = getattr(model.model.config, "block_size", None)
 
-    # 随机采样
+    # Random sampling
     idxs = random.sample(range(len(dataset)), k=min(batch_size, len(dataset)))
 
     for i in idxs:
@@ -134,9 +108,7 @@ def _rollout_batch(
         if isinstance(reference_code, list):
             reference_code = reference_code[0]
 
-        # ------------------------------------------------------------------
         # encode prompt (no special tokens)
-        # ------------------------------------------------------------------
         enc = tokenizer(
             prompt,
             return_tensors="pt",
@@ -144,7 +116,7 @@ def _rollout_batch(
         )
         input_ids = enc["input_ids"].to(device)  # [1, Tp]
 
-        # block_size 裁剪 prompt
+        # block_size truncates prompt
         if block_size is not None and input_ids.size(1) > block_size:
             input_ids = input_ids[:, :block_size]
 
@@ -153,16 +125,13 @@ def _rollout_batch(
             out0 = model(input_ids=input_ids, attention_mask=None, labels=None)
             value0 = out0["value"]  # [1,1]
 
-        # ------------------------------------------------------------------
         # autoregressive generate
-        # ------------------------------------------------------------------
         generated_ids = input_ids[0].clone()  # [Tp]
         gen_actions = []
         gen_logps = []
 
         for _ in range(max_new_tokens):
             cur_in = generated_ids.unsqueeze(0)
-            # block_size 裁剪上下文（滑窗）                              ### FIX
             if block_size is not None and cur_in.size(1) > block_size:
                 cur_in = cur_in[:, -block_size:]
 
@@ -184,18 +153,14 @@ def _rollout_batch(
             if action.item() == tokenizer.eos_token_id:
                 break
 
-            # hard safety: stop if > block_size after append             ### FIX
+            # hard safety: stop if > block_size after append
             if block_size is not None and generated_ids.numel() >= block_size:
                 break
 
-        # ------------------------------------------------------------------
         # decode full output
-        # ------------------------------------------------------------------
         decoded_output = tokenizer.decode(generated_ids.tolist())
 
-        # ------------------------------------------------------------------
         # reward
-        # ------------------------------------------------------------------
         reward = reward_function(
             generated_code=decoded_output,              # named args for clarity
             reference_code=reference_code,
@@ -209,12 +174,10 @@ def _rollout_batch(
         else:
             avg_logp = torch.tensor(0.0, device=device)
 
-        # ------------------------------------------------------------------
         # push to buffer
-        #   states = full sequence (prompt+gen)
-        #   actions = generated token seq (List[tokens])
-        #   log_probs = per-token logp seq
-        # ------------------------------------------------------------------
+        # states = full sequence (prompt+gen)
+        # actions = generated token seq (List[tokens])
+        # log_probs = per-token logp seq
         full_state_cpu = generated_ids.cpu()
         if gen_actions:
             actions_cpu = torch.stack(gen_actions).cpu()
@@ -240,23 +203,17 @@ def _rollout_batch(
 
     model.train()  # leave model back in train mode for optimizer step
 
-
-# =============================================================================
 # main training loop
-# =============================================================================
-
 def run(cfg: SimpleNamespace):
     timestamp = setup_logger()
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"=== Device: {device} ===")
 
-    # 生成统一的保存根目录
+    # Generate a unified save root directory
     save_root = f"./saved_nanoGPT_finetuned/A2C/{timestamp}"
-    os.makedirs(save_root, exist_ok=True)  # ← 确保目录存在
+    os.makedirs(save_root, exist_ok=True)
 
-    # ------------------------------------------------------------------
     # load model
-    # ------------------------------------------------------------------
     model_dir = "./out/mbpp_baseline_v3/"
     tok_dir = "./data/mbpp_new"
     model = NanoGPTA2CPolicy(model_dir, tokenizer_path=tok_dir, debug=getattr(cfg, "debug", False))
@@ -278,15 +235,11 @@ def run(cfg: SimpleNamespace):
     # debug for a2c_trainer.py pad_token_id: int = 0
     print("DEBUG ‑ pad_token_id =", tokenizer.pad_token_id)
 
-    # ------------------------------------------------------------------
     # dataset
-    # ------------------------------------------------------------------
     raw_ds = load_dataset("json", data_files="google-research/mbpp/mbpp_train.jsonl")
     train_ds = raw_ds["train"]
 
-    # ------------------------------------------------------------------
     # trainer
-    # ------------------------------------------------------------------
     buffer = TrajectoryBuffer()
     trainer = A2CTrainer(
         model,
@@ -308,12 +261,10 @@ def run(cfg: SimpleNamespace):
     patience_counter = 0
     reward_window: List[float] = []
 
-    # ------------------------------------------------------------------
     # training steps: rollout → update
-    # ------------------------------------------------------------------
     for step in range(cfg.total_steps):
 
-        # === collect experience ======================================= ### FIX
+        # collect experience
         _rollout_batch(
             model=model,
             tokenizer=tokenizer,
@@ -325,7 +276,7 @@ def run(cfg: SimpleNamespace):
             debug=debug and (step % 10 == 0),
         )
 
-        # === optimize ==================================================
+        # optimize
         metrics: Dict[str, Any] = trainer.train_step()
 
         if debug or step < 3:
@@ -370,7 +321,7 @@ def run(cfg: SimpleNamespace):
             ckpt_step_path = os.path.join(save_root, f"ckpt_{step + 1}.pt")
             torch.save(model.state_dict(), ckpt_step_path)
 
-        # === eval ppl ==================================================
+        # eval ppl
         if step % cfg.eval_interval == 0:
             # build eval subset
             eval_pairs = load_prompt_completion_pairs(
@@ -390,7 +341,7 @@ def run(cfg: SimpleNamespace):
             wandb.log({"ppl": ppl_val}, step=step)
             print(f"[Step {step}] PPL(A2C) = {ppl_val:.2f} | AvgR = {moving_avg:.4f}")
 
-            # --- 以验证 PPL 选最佳 ckpt 并做 early‑stop ---
+            # To verify PPL, select the best ckpt and do early-stop
             if ppl_val < best_ppl:
                 best_ppl = ppl_val
                 best_state = {k: v.cpu() for k, v in model.state_dict().items()}
@@ -403,9 +354,7 @@ def run(cfg: SimpleNamespace):
                 print(f"Early stopped at step {step} (best_step={best_step}).")
                 break
 
-    # ------------------------------------------------------------------
     # save checkpoints
-    # ------------------------------------------------------------------
     final_dir = f"./saved_nanoGPT_finetuned/A2C/{timestamp}"
     os.makedirs(final_dir, exist_ok=True)
     torch.save(model.state_dict(), os.path.join(final_dir, "pytorch_model.bin"))
@@ -432,10 +381,7 @@ def run(cfg: SimpleNamespace):
         f"Best ckpt(step {best_step}) → {best_dir} (Best PPL={best_ppl:.4f})"
     )
 
-# =============================================================================
 # CLI
-# =============================================================================
-
 if __name__ == "__main__":
     import argparse
 

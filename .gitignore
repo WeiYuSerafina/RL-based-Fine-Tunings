@@ -12,3 +12,5 @@ input.txt
 !data/mbpp_new/train.bin
 !data/mbpp_new/val.bin
 !data/mbpp_new/meta.pkl
+!saved_nanoGPT_finetuned/PPO_best_step_160/pytorch_model.bin
+!saved_nanoGPT_finetuned/A2C_best_step_1600/pytorch_model.bin

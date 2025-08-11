@@ -1,3 +1,85 @@
+## Instructions for baseline, PPO, and A2C models training
+
+This section describes how to reproduce the baseline, PPO, and A2C training used in the thesis "Fine-Tuning LLMs in Teacher-Student Settings: Improving Code Performance using RL".
+
+### 1. Dataset Preparation
+Ensure your dataset is cleaned and placed in the `./google-research/mbpp` directory.
+
+Obtain the train dataset in JSONL format, which will be saved to ./google-research/mbpp/mbpp_train.jsonl, by running:
+```
+$ python3 prepare_mbpp_train.py 
+
+```
+
+Obtain the validation dataset in JSONL format, which will be saved to ./google-research/mbpp/sanitized_mbpp_for_nanoGPT.jsonl, by running:
+```
+$ python3 convert_mbpp_to_jsonl.py 
+
+```
+
+
+### 2. Baseline Model Training
+If the baseline model training will be terminated during the training, the baseline model  will be saved to ./out/mbpp_baseline_v3/ckpt.pt for the checkpoint and to ./data/mbpp_new for the tokenizer and data preprocessing products.
+
+If the baseline model training will finish from the scratch to the end, the baseline model will be saved to ./saved_nanoGPT for the model.pt, pytorch_model.bin, config.json and ckpt.pt. 
+
+```
+$ python3 prepare.py
+$ python3 train.py
+```
+
+Evaluate Perplexity (PPL):
+```
+$ python3 baseline_evalute_perplexity.py
+
+```
+
+
+###  3. PPO Fine-Tuning
+Fine-tune the baseline model using Proximal Policy Optimization (PPO).
+```
+$ python3 run_ppo.py
+
+```
+
+PPO model will be saved to ./saved_nanoGPT_finetuned/PPO_best_step_<STEP>
+
+PPO evaluation (Prompt + Completion, PPL on completion only):
+
+```
+$ python3 evalute_ppo_a2c_perplexity.py
+
+```
+
+###  4. A2C Fine-Tuning
+Fine-tune the Baseline model using Advantage Actor-Critic (A2C).
+```
+$ python3 run_a2c.py
+
+```
+
+A2C model will be saved to ./saved_nanoGPT_finetuned/A2C_best_step_<STEP>
+
+
+A2C evaluation (Prompt + Completion, PPL on completion only):
+
+```
+$ python3 evalute_ppo_a2c_perplexity.py
+
+```
+
+###  5. Notes
+* Modify these as needed for experiments.
+
+* This project includes two source files originally from the Google Research repository, licensed under Apache 2.0.  
+We have included only the files essential to reproduce our results:
+
+- `mbpp.jsonl`
+- `sanitized-mbpp.json`
+
+These files retain their original copyright and license headers.  
+Original repository: https://github.com/google-research/google-research
+
 
 # nanoGPT
 
@@ -228,11 +310,4 @@ All nanoGPT experiments are powered by GPUs on [Lambda labs](https://lambdalabs.
 
 ### Used Code from Google Research
 
-This project includes three source files originally from the Google Research repository, licensed under Apache 2.0.  
-We have included only the files essential to reproduce our results:
 
-- `mbpp.jsonl`
-- `sanitized-mbpp.json`
-
-These files retain their original copyright and license headers.  
-Original repository: https://github.com/google-research/google-research
