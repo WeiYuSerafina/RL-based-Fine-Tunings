@@ -103,7 +103,7 @@ def _rollout_batch(
         ex = dataset[i]
         prompt = ex.get("prompt", ex.get("text", ""))
 
-        # ground-truth供 reward
+        # Get the reference code (ground-truth) for subsequent reward calculation
         reference_code = ex.get("code") or ex.get("completion") or ""
         if isinstance(reference_code, list):
             reference_code = reference_code[0]
