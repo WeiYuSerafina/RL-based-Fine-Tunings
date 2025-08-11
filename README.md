@@ -42,7 +42,7 @@ $ python3 run_ppo.py
 
 ```
 
-PPO model will be saved to ./saved_nanoGPT_finetuned/PPO_best_step_<STEP>
+PPO model will be saved to ./saved_nanoGPT_finetuned/PPO_best_step_\<STEP\>
 
 PPO evaluation (Prompt + Completion, PPL on completion only):
 
@@ -58,7 +58,7 @@ $ python3 run_a2c.py
 
 ```
 
-A2C model will be saved to ./saved_nanoGPT_finetuned/A2C_best_step_<STEP>
+A2C model will be saved to ./saved_nanoGPT_finetuned/A2C_best_step_\<STEP\>
 
 
 A2C evaluation (Prompt + Completion, PPL on completion only):
